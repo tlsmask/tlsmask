@@ -119,60 +119,73 @@ func main() {
 
 func printBanner(b bannerInfo) {
 	const (
-		dim    = "\033[90m"
-		cyan   = "\033[36m"
-		bold   = "\033[1m"
-		white  = "\033[97m"
-		reset  = "\033[0m"
-		green  = "\033[32m"
+		dim   = "\033[90m"
+		cyan  = "\033[36m"
+		bold  = "\033[1m"
+		white = "\033[97m"
+		reset = "\033[0m"
 	)
 
-	w := 60
-	bar := dim + strings.Repeat("─", w) + reset
+	dbar := dim + strings.Repeat("═", 56) + reset
+	sbar := dim + strings.Repeat("─", 56) + reset
 
 	fmt.Println()
 	fmt.Printf("  %s%sTLSMask%s %s— TLS Behavior Emulation Proxy%s\n", bold, white, reset, dim, reset)
-	fmt.Println("  " + bar)
-	fmt.Println()
+	fmt.Println("  " + dbar)
 
-	field := func(label, value string) {
-		fmt.Printf("  %s%-14s%s%s\n", dim, label, reset, value)
+	row := func(label, value string) {
+		fmt.Printf("  %-12s%s:%s %s\n", label, dim, reset, value)
 	}
 
-	field("Listen", b.addr)
+	fmt.Println()
+	row("Listen", b.addr)
 	if b.upstream != "" {
-		field("Upstream", b.upstream)
-	}
-	fmt.Println()
-
-	field("Profile", fmt.Sprintf("%s%s%s %s(%s)%s", cyan, b.profile, reset, dim, b.kind, reset))
-	field("TLS", b.tlsVersion)
-	field("ALPN", b.alpn)
-	field("Ciphers", fmt.Sprintf("%d", b.ciphers))
-	field("Sig Algs", fmt.Sprintf("%d", b.sigAlgs))
-	fmt.Println()
-
-	if len(b.ja3) > 72 {
-		field("JA3", b.ja3[:72])
-		fmt.Printf("  %s%-14s%s%s\n", dim, "", reset, b.ja3[72:])
-	} else {
-		field("JA3", b.ja3)
+		row("Upstream", b.upstream)
 	}
 
+	fmt.Println()
+	fmt.Printf("  %s%sFingerprint%s\n", bold, white, reset)
+	fmt.Println("  " + sbar)
+	row("Profile", b.kind)
+	if b.kind == "preset" {
+		row("Name", fmt.Sprintf("%s%s%s", cyan, b.profile, reset))
+	}
+	row("TLS", b.tlsVersion)
+	row("ALPN", b.alpn)
+	row("Ciphers", fmt.Sprintf("%d", b.ciphers))
+	row("SigAlgs", fmt.Sprintf("%d", b.sigAlgs))
+
+	fmt.Println()
+	fmt.Printf("  %s%sHash%s\n", bold, white, reset)
+	fmt.Println("  " + sbar)
+	wrapRow("JA3", b.ja3, 68)
 	if b.ja4r != "" {
-		if len(b.ja4r) > 72 {
-			field("JA4_r", b.ja4r[:72])
-			fmt.Printf("  %s%-14s%s%s\n", dim, "", reset, b.ja4r[72:])
-		} else {
-			field("JA4_r", b.ja4r)
-		}
+		wrapRow("JA4", b.ja4r, 68)
 	}
 
 	fmt.Println()
-	fmt.Println("  " + bar)
-	fmt.Printf("  %sProxy listening on %s%s%s\n", dim, green, b.addr, reset)
-	fmt.Printf("  %sUpstream config: %s127.0.0.1:%d%s\n", dim, reset, portFromAddr(b.addr), reset)
+	fmt.Println("  " + dbar)
 	fmt.Println()
+}
+
+func wrapRow(label, value string, maxLen int) {
+	const (
+		dim   = "\033[90m"
+		reset = "\033[0m"
+	)
+	if len(value) <= maxLen {
+		fmt.Printf("  %-12s%s:%s %s\n", label, dim, reset, value)
+		return
+	}
+	fmt.Printf("  %-12s%s:%s %s\n", label, dim, reset, value[:maxLen])
+	rest := value[maxLen:]
+	for len(rest) > maxLen {
+		fmt.Printf("  %14s%s\n", "", rest[:maxLen])
+		rest = rest[maxLen:]
+	}
+	if len(rest) > 0 {
+		fmt.Printf("  %14s%s\n", "", rest)
+	}
 }
 
 func printTemplateList() {
@@ -189,16 +202,6 @@ func printTemplateList() {
 		fmt.Printf("  %-24s %sJA3: %s%s\n", name, dim, trunc(tmpl.JA3String, 50), reset)
 	}
 	fmt.Printf("\n  %sOr use custom:%s --ja3 <value> --ja4r <value>\n\n", dim, reset)
-}
-
-func portFromAddr(addr string) int {
-	parts := strings.Split(addr, ":")
-	if len(parts) < 2 {
-		return 0
-	}
-	var p int
-	fmt.Sscanf(parts[len(parts)-1], "%d", &p)
-	return p
 }
 
 func countCiphers(ja3String string) int {
