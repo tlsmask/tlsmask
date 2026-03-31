@@ -257,7 +257,7 @@ func getExtensionBaseMap() map[uint16]tls.TLSExtension {
 		// tls.ExtensionRecordSizeLimit:      &tls.FakeRecordSizeLimitExtension{},
 
 		tls.ExtensionSCT:                  &tls.SCTExtension{},
-		tls.ExtensionPadding:              &tls.UtlsPaddingExtension{GetPaddingLen: tls.BoringPaddingStyle},
+		tls.ExtensionPadding:              &tls.UtlsPaddingExtension{WillPad: true, GetPaddingLen: tls.BoringPaddingStyle},
 		tls.ExtensionExtendedMasterSecret: &tls.ExtendedMasterSecretExtension{},
 		tls.ExtensionSessionTicket:        &tls.SessionTicketExtension{},
 		tls.ExtensionPreSharedKey: &tls.FakePreSharedKeyExtension{
