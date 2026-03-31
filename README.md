@@ -1,84 +1,119 @@
-## TLSMask
-
-TLSMask is an advanced upstream proxy designed to dynamically emulate TLS client behavior for penetration testing and security research.
-
+ TLSMask
+ 
+TLSMask is an upstream proxy for penetration testing that dynamically emulates TLS client behavior. It takes JA3 / JA4_r values directly from Wireshark and reproduces the exact TLS fingerprint on outbound connections — allowing tools like Burp Suite to bypass TLS fingerprint-based blocking.
+ 
 ---
-
-### 🔥 Features
-
-- Custom TLS ClientHello generation from JA3 / JA4_r (Wireshark)
-- High-fidelity TLS fingerprint reconstruction
-- Cipher suite and extension ordering control
+ 
+## 🔥 Features
+ 
+- Exact TLS ClientHello reconstruction from JA3 + JA4_r (Wireshark)
+- Cipher suite and extension ordering preserved
+- Padding extension (`0x0015`) support
 - HTTP/2 SETTINGS frame + pseudo-header shaping
 - Built-in preset profiles (OkHttp4, more coming)
-- Lightweight Alpine-based image (~29MB)
-
+- Chains to upstream proxies (e.g. Burp Suite)
+- Lightweight Alpine-based Docker image (~29MB)
+ 
 ---
-
-### 🚀 Quick Start
-
+ 
+## 🧪 Real-World Validation
+ 
+**Target:** Twitter API (`api.twitter.com`) behind Cloudflare + Envoy  
+**Method:** Android app ClientHello captured in Wireshark, values passed directly to tlsmask
+ 
+| Scenario | JA3 Hash | Result |
+|----------|----------|--------|
+| Burp Suite (no tlsmask) | `62f6a672...` | `403 Forbidden` |
+| tlsmask (Android fingerprint) | `3a3a7739...` | `200 OK` |
+ 
+Response confirmed:
+```
+X-Twitter-Response-Tags: BouncerCompliant
+Server: cloudflare envoy
+```
+ 
+JA3 verified via [tls.peet.ws](https://tls.peet.ws):
+```
+Wireshark capture : 3a3a7739b7ee9b4dc9078b116b72ab96
+tlsmask output    : 3a3a7739b7ee9b4dc9078b116b72ab96  ✓
+```
+ 
+---
+ 
+## 🚀 Quick Start
+ 
 **Preset fingerprint (OkHttp4):**
-
-    docker run -p 2255:2255 berkdedekarginoglu/tlsmask
-
+```bash
+docker run -p 2255:2255 berkdedekarginoglu/tlsmask
+```
+ 
 **Custom fingerprint from Wireshark:**
-
-    docker run -p 2255:2255 berkdedekarginoglu/tlsmask \
-      --ja3 771,4865-4866-4867-49195-49196-52393-49199-49200-52392,0-23-65281-10-11-35-16-5-13-51-45-43-21,29-23-24,0 \
-      --ja4r t12d1209h2_002f,0035,009c,009d,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0017,0023,ff01_0403,0804,0401,0503,0805,0501,0806,0601,0201
-
+```bash
+docker run -p 2255:2255 berkdedekarginoglu/tlsmask \
+  --ja3 771,4865-4866-4867-49195-49196-52393-49199-49200-52392,0-23-65281-10-11-35-16-5-13-51-45-43-21,29-23-24,0 \
+  --ja4r t13d0913h2_1301,1302,1303,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0015,0017,0023,002b,002d,0033,ff01_0403,0804,0401,0503,0805,0501,0806,0601,0201
+```
+ 
 **List available presets:**
-
-    docker run --rm berkdedekarginoglu/tlsmask --list
-
-> **Note:** JA3 and JA4_r values contain no spaces, so quotes are not required.
-
+```bash
+docker run --rm berkdedekarginoglu/tlsmask --list
+```
+ 
+> `--ja3` and `--ja4r` must be used together. Providing only one will result in an error.
+ 
 ---
-
-### 🛠️ CLI Reference
-
+ 
+## ⚙️ How It Works
+ 
+TLSMask sits between your testing tool and the target as an upstream MITM proxy:
+ 
+1. Receives HTTPS traffic from your tool (Burp Suite, Frida, scripts)
+2. Terminates the incoming TLS connection using an in-memory self-signed CA
+3. Re-establishes a new TLS connection to the target using a controlled ClientHello
+4. Transparently relays traffic with the spoofed fingerprint
+ 
+**Workflow:**
+```
+Your Tool (Burp) → tlsmask :2255 → Target Server
+                   [ClientHello with exact JA3/JA4]
+```
+ 
+---
+ 
+## 🛠️ CLI Reference
+ 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--port` | Proxy listen port | `2255` |
 | `--fingerprint` | Preset template name | `okhttp4` |
-| `--ja3` | JA3 fullstring | — |
-| `--ja4r` | JA4_r raw string | — |
-| `--upstream` | Chain to upstream proxy | — |
-| `--verbose` | Log requests with status codes | `true` |
-| `--list` | List available presets | — |
-
+| `--ja3` | JA3 fullstring (requires --ja4r) | — |
+| `--ja4r` | JA4_r raw string (requires --ja3) | — |
+| `--upstream` | Chain to upstream proxy URL | — |
+| `--verbose` | Log requests with status codes | `false` |
+| `--list` | List available fingerprint presets | — |
+ 
 ---
-
-### 🎯 Use Cases
-
-- Testing systems that rely on TLS fingerprinting (WAF, bot protection)
-- Mobile traffic emulation (Android / iOS)
-- Red team operations
-- Anti-bot system research
-
+ 
+## 🎯 Use Cases
+ 
+- **Mobile app testing:** Reproduce the exact TLS fingerprint of an Android/iOS app after SSL unpinning
+- **WAF/bot protection bypass:** Route Burp Suite traffic through a legitimate-looking TLS fingerprint
+- **Fingerprint-allowlisted APIs:** Access endpoints that only accept specific client fingerprints
+- **Red team operations:** Remove pentest tool signatures from outbound TLS traffic
+ 
 ---
-
-### ⚙️ How It Works
-
-TLSMask acts as an upstream MITM proxy that:
-
-1. Receives HTTPS traffic from your tool (Burp, Frida, scripts)
-2. Terminates the incoming TLS connection using an in-memory self-signed CA
-3. Re-establishes a new TLS connection to the target server using a controlled ClientHello fingerprint
-4. Transparently relays the traffic with the new fingerprint
-
-**Burp Suite:** Settings → Network → Connections → Upstream Proxy Servers → Add `127.0.0.1:2255`
-
+ 
+## 🔗 Burp Suite Integration
+ 
+```
+Settings → Network → Connections → Upstream Proxy Servers → Add
+  Destination host: *
+  Proxy host:       127.0.0.1
+  Proxy port:       2255
+```
+ 
 ---
-
-## Internal TLS Engine
-
-This project uses a patched version of bogdanfinn/tls-client located in `deps/tls-client`.
-
-Modifications include custom TLS fingerprint profiles (e.g. Android/OkHttp).
-
----
-
-### ⚠️ Disclaimer
-
-This tool is intended for authorized security testing and research purposes only.
+ 
+## ⚠️ Disclaimer
+ 
+This tool is intended for authorized security testing and research purposes only. Do not use against systems you do not have explicit permission to test.
