@@ -3,6 +3,7 @@
 *.dll
 *.so
 *.dylib
+vendor/
 .idea/
 .vscode/
 *.swp
