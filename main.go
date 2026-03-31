@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	port := flag.Int("port", 8080, "proxy listen port")
+	port := flag.Int("port", 2255, "proxy listen port")
 	fp := flag.String("fingerprint", "", "fingerprint template name (e.g. okhttp4)")
 	upstream := flag.String("upstream", "", "upstream proxy URL (e.g. http://127.0.0.1:8888)")
 	verbose := flag.Bool("verbose", false, "log response status codes")

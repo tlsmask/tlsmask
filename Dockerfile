@@ -15,6 +15,6 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /tlsmask /usr/local/bin/tlsmask
 
-EXPOSE 8080
+EXPOSE 2255
 ENTRYPOINT ["tlsmask"]
-CMD ["--port", "8080", "--verbose"]
+CMD ["--port", "2255", "--verbose"]
