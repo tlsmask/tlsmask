@@ -14,40 +14,61 @@ import (
 	tls_client "github.com/bogdanfinn/tls-client"
 )
 
+type bannerInfo struct {
+	addr       string
+	upstream   string
+	profile    string
+	kind       string
+	tlsVersion string
+	alpn       string
+	ciphers    int
+	sigAlgs    int
+	ja3        string
+	ja4r       string
+}
+
 func main() {
 	port := flag.Int("port", 2255, "proxy listen port")
 	fp := flag.String("fingerprint", "", "fingerprint template name (e.g. okhttp4)")
 	upstream := flag.String("upstream", "", "upstream proxy URL (e.g. http://127.0.0.1:8888)")
 	verbose := flag.Bool("verbose", false, "log response status codes")
 	listFP := flag.Bool("list", false, "list available fingerprint templates and exit")
-	ja3Flag := flag.String("ja3", "", "JA3 fullstring from Wireshark (e.g. 771,4865-4866-...,0-23-...,...,...)")
-	ja4rFlag := flag.String("ja4r", "", "JA4_r (raw) string from Wireshark (e.g. t12d1209h2_..._..._0403,0804,...)")
+	ja3Flag := flag.String("ja3", "", "JA3 fullstring")
+	ja4rFlag := flag.String("ja4r", "", "JA4_r raw string")
 	flag.Parse()
 
 	if *listFP {
-		fmt.Println("Available fingerprint templates:")
-		for _, name := range fingerprint.Names() {
-			tmpl := fingerprint.Get(name)
-			fmt.Printf("  %-30s  JA3: %s\n", name, truncate(tmpl.JA3String, 60))
-		}
-		fmt.Println("\nOr use custom fingerprint from Wireshark:")
-		fmt.Println("  --ja3 \"<JA3 fullstring>\" --ja4r \"<JA4_r string>\"")
+		printTemplateList()
 		os.Exit(0)
 	}
 
 	var (
-		client      tls_client.HttpClient
-		displayName string
-		ja3Display  string
-		err         error
+		client tls_client.HttpClient
+		info   bannerInfo
+		err    error
 	)
 
+	info.addr = fmt.Sprintf("0.0.0.0:%d", *port)
+	info.upstream = *upstream
+
 	if *ja3Flag != "" && *ja4rFlag != "" {
+		var displayName string
 		client, displayName, err = fingerprint.BuildClientFromRaw(*ja3Flag, *ja4rFlag, *upstream)
 		if err != nil {
 			log.Fatalf("failed to build client from JA3+JA4_r: %v", err)
 		}
-		ja3Display = *ja3Flag
+
+		ja4r, _ := fingerprint.ParseJA4R(*ja4rFlag)
+		info.profile = displayName
+		info.kind = "custom"
+		info.ja3 = *ja3Flag
+		info.ja4r = *ja4rFlag
+		if ja4r != nil {
+			info.tlsVersion = ja4r.SupportedVersions()[0]
+			info.alpn = strings.Join(ja4r.ALPNProtocols(), ", ")
+			info.sigAlgs = len(ja4r.SignatureAlgorithmsHex)
+		}
+		info.ciphers = countCiphers(*ja3Flag)
 	} else if *ja3Flag != "" && *ja4rFlag == "" {
 		fmt.Fprintln(os.Stderr, "error: --ja3 requires --ja4r")
 		os.Exit(1)
@@ -69,8 +90,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to build TLS client: %v", err)
 		}
-		displayName = tmpl.Name
-		ja3Display = tmpl.JA3String
+		info.profile = tmpl.Name
+		info.kind = "preset"
+		info.ja3 = tmpl.JA3String
+		info.tlsVersion = strings.Join(tmpl.SupportedVersions, ", ")
+		info.alpn = strings.Join(tmpl.ALPNProtocols, ", ")
+		info.ciphers = countCiphers(tmpl.JA3String)
+		info.sigAlgs = len(tmpl.SupportedSignatureAlgorithms)
 	}
 
 	ca, err := cert.NewCA()
@@ -78,11 +104,10 @@ func main() {
 		log.Fatalf("failed to create CA: %v", err)
 	}
 
-	addr := fmt.Sprintf("0.0.0.0:%d", *port)
-	printBanner(addr, displayName, ja3Display, *upstream)
+	printBanner(info)
 
 	srv := &proxy.Server{
-		Addr:    addr,
+		Addr:    info.addr,
 		Client:  client,
 		CA:      ca,
 		Verbose: *verbose,
@@ -92,22 +117,78 @@ func main() {
 	}
 }
 
-func printBanner(addr, fpName, ja3String, upstream string) {
-	w := 62
-	line := strings.Repeat("═", w)
-	fmt.Printf("╔%s╗\n", line)
-	fmt.Printf("║  %-*s║\n", w-2, "TLSMask — TLS Fingerprint Proxy")
-	fmt.Printf("╠%s╣\n", line)
-	fmt.Printf("║  %-*s║\n", w-2, fmt.Sprintf("Listen     : %s", addr))
-	fmt.Printf("║  %-*s║\n", w-2, fmt.Sprintf("Fingerprint: %s", fpName))
-	fmt.Printf("║  %-*s║\n", w-2, fmt.Sprintf("JA3        : %s", truncate(ja3String, 40)))
-	if upstream != "" {
-		fmt.Printf("║  %-*s║\n", w-2, fmt.Sprintf("Upstream   : %s", upstream))
+func printBanner(b bannerInfo) {
+	const (
+		dim    = "\033[90m"
+		cyan   = "\033[36m"
+		bold   = "\033[1m"
+		white  = "\033[97m"
+		reset  = "\033[0m"
+		green  = "\033[32m"
+	)
+
+	w := 60
+	bar := dim + strings.Repeat("─", w) + reset
+
+	fmt.Println()
+	fmt.Printf("  %s%sTLSMask%s %s— TLS Behavior Emulation Proxy%s\n", bold, white, reset, dim, reset)
+	fmt.Println("  " + bar)
+	fmt.Println()
+
+	field := func(label, value string) {
+		fmt.Printf("  %s%-14s%s%s\n", dim, label, reset, value)
 	}
-	fmt.Printf("║  %-*s║\n", w-2, "")
-	fmt.Printf("║  %-*s║\n", w-2, "Set as upstream proxy in your tool:")
-	fmt.Printf("║  %-*s║\n", w-2, fmt.Sprintf("  Host: 127.0.0.1  Port: %d", portFromAddr(addr)))
-	fmt.Printf("╚%s╝\n\n", line)
+
+	field("Listen", b.addr)
+	if b.upstream != "" {
+		field("Upstream", b.upstream)
+	}
+	fmt.Println()
+
+	field("Profile", fmt.Sprintf("%s%s%s %s(%s)%s", cyan, b.profile, reset, dim, b.kind, reset))
+	field("TLS", b.tlsVersion)
+	field("ALPN", b.alpn)
+	field("Ciphers", fmt.Sprintf("%d", b.ciphers))
+	field("Sig Algs", fmt.Sprintf("%d", b.sigAlgs))
+	fmt.Println()
+
+	if len(b.ja3) > 72 {
+		field("JA3", b.ja3[:72])
+		fmt.Printf("  %s%-14s%s%s\n", dim, "", reset, b.ja3[72:])
+	} else {
+		field("JA3", b.ja3)
+	}
+
+	if b.ja4r != "" {
+		if len(b.ja4r) > 72 {
+			field("JA4_r", b.ja4r[:72])
+			fmt.Printf("  %s%-14s%s%s\n", dim, "", reset, b.ja4r[72:])
+		} else {
+			field("JA4_r", b.ja4r)
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("  " + bar)
+	fmt.Printf("  %sProxy listening on %s%s%s\n", dim, green, b.addr, reset)
+	fmt.Printf("  %sUpstream config: %s127.0.0.1:%d%s\n", dim, reset, portFromAddr(b.addr), reset)
+	fmt.Println()
+}
+
+func printTemplateList() {
+	const (
+		dim   = "\033[90m"
+		cyan  = "\033[36m"
+		bold  = "\033[1m"
+		reset = "\033[0m"
+	)
+
+	fmt.Printf("\n  %s%sAvailable fingerprint templates:%s\n\n", bold, cyan, reset)
+	for _, name := range fingerprint.Names() {
+		tmpl := fingerprint.Get(name)
+		fmt.Printf("  %-24s %sJA3: %s%s\n", name, dim, trunc(tmpl.JA3String, 50), reset)
+	}
+	fmt.Printf("\n  %sOr use custom:%s --ja3 <value> --ja4r <value>\n\n", dim, reset)
 }
 
 func portFromAddr(addr string) int {
@@ -120,7 +201,15 @@ func portFromAddr(addr string) int {
 	return p
 }
 
-func truncate(s string, maxLen int) string {
+func countCiphers(ja3String string) int {
+	parts := strings.Split(ja3String, ",")
+	if len(parts) < 2 || parts[1] == "" {
+		return 0
+	}
+	return len(strings.Split(parts[1], "-"))
+}
+
+func trunc(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}

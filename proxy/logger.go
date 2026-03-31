@@ -16,74 +16,75 @@ const (
 	colorCyan   = "\033[36m"
 	colorGray   = "\033[90m"
 	colorBold   = "\033[1m"
+	colorWhite  = "\033[97m"
 )
 
 func logRequest(num int64, method string, rawURL string, statusCode int, bodySize int, duration time.Duration) {
 	ts := time.Now().Format("15:04:05")
-	displayURL := compactURL(rawURL, 60)
+	host, path := splitURL(rawURL)
+	display := truncateStr(host+path, 52)
 	size := humanSize(bodySize)
 	dur := formatDuration(duration)
-	statusColor := statusToColor(statusCode)
+	sc := statusToColor(statusCode)
 
-	fmt.Fprintf(os.Stderr, "%s %s#%-4d%s %-4s %-60s %s→ %d%s %s(%s, %s)%s\n",
-		colorGray+ts+colorReset,
-		colorBold, num, colorReset,
-		method, displayURL,
-		statusColor, statusCode, colorReset,
+	fmt.Fprintf(os.Stderr, "  %s%s%s  %s[#%03d]%s  %-6s %s%-52s%s  %s%d%s  %s%6s  %5s%s\n",
+		colorGray, ts, colorReset,
+		colorGray, num, colorReset,
+		method,
+		colorWhite, display, colorReset,
+		sc, statusCode, colorReset,
 		colorGray, size, dur, colorReset,
 	)
 }
 
 func logError(num int64, context string, err error) {
 	ts := time.Now().Format("15:04:05")
-	fmt.Fprintf(os.Stderr, "%s %s#%-4d%s %s✗ %s: %v%s\n",
-		colorGray+ts+colorReset,
-		colorBold, num, colorReset,
+	fmt.Fprintf(os.Stderr, "  %s%s%s  %s[#%03d]%s  %s✗ %s: %v%s\n",
+		colorGray, ts, colorReset,
+		colorGray, num, colorReset,
 		colorRed, context, err, colorReset,
 	)
 }
 
 func logInfo(msg string) {
-	ts := time.Now().Format("15:04:05")
-	fmt.Fprintf(os.Stderr, "%s %s%s%s\n",
-		colorGray+ts+colorReset,
-		colorCyan, msg, colorReset,
-	)
+	fmt.Fprintf(os.Stderr, "  %s%s%s\n", colorCyan, msg, colorReset)
 }
 
-func compactURL(rawURL string, maxLen int) string {
+func splitURL(rawURL string) (string, string) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return truncateStr(rawURL, maxLen)
+		return rawURL, ""
 	}
 
-	display := u.Host + u.Path
+	host := u.Host
+	path := u.Path
+
 	if u.RawQuery != "" {
 		params := u.Query()
-		keys := make([]string, 0, len(params))
-		for k := range params {
-			keys = append(keys, k)
-		}
-		if len(keys) <= 3 {
-			display += "?" + strings.Join(keys, "&")
+		if len(params) <= 2 {
+			keys := make([]string, 0, len(params))
+			for k := range params {
+				keys = append(keys, k)
+			}
+			path += "?" + strings.Join(keys, "&")
 		} else {
-			display += fmt.Sprintf("?(%d params)", len(keys))
+			path += fmt.Sprintf("?(%d params)", len(params))
 		}
 	}
 
-	return truncateStr(display, maxLen)
+	return host, path
 }
 
 func humanSize(bytes int) string {
 	switch {
 	case bytes < 0:
-		return "?"
+		return "  ?"
 	case bytes < 1024:
-		return fmt.Sprintf("%d B", bytes)
+		return fmt.Sprintf("%dB", bytes)
 	case bytes < 1024*1024:
-		return fmt.Sprintf("%.1f KB", float64(bytes)/1024)
+		return fmt.Sprintf("%.1fK", float64(bytes)/1024)
 	default:
-		return fmt.Sprintf("%.1f MB", float64(bytes)/(1024*1024))
+		return fmt.Sprintf("%.1fM", float64(bytes)/(1024*1024))
 	}
 }
 

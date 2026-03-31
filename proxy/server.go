@@ -33,7 +33,7 @@ func (s *Server) ListenAndServe() error {
 	}
 	defer ln.Close()
 
-	logInfo("listening on " + s.Addr)
+	logInfo("Proxy listening on " + s.Addr)
 
 	for {
 		conn, err := ln.Accept()
