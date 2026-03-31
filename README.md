@@ -57,6 +57,14 @@ TLSMask acts as an upstream MITM proxy that:
 
 ---
 
+## Internal TLS Engine
+
+This project uses a patched version of bogdanfinn/tls-client located in `deps/tls-client`.
+
+Modifications include custom TLS fingerprint profiles (e.g. Android/OkHttp).
+
+---
+
 ### ⚠️ Disclaimer
 
 This tool is intended for authorized security testing and research purposes only.
