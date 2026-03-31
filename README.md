@@ -1,6 +1,6 @@
 ## TLSMask
  
-TLSMask is an upstream proxy for penetration testing that dynamically emulates TLS client behavior. It takes JA3 / JA4_r values directly from Wireshark and reproduces the exact TLS fingerprint on outbound connections — allowing tools like Burp Suite to bypass TLS fingerprint-based blocking.
+TLSMask is an upstream proxy for penetration testing that dynamically emulates TLS client behavior. It takes JA3 / JA4_r values directly from Wireshark and reproduces the exact TLS fingerprint on outbound connections allowing tools like Burp Suite to bypass TLS fingerprint-based blocking.
  
 ---
  
