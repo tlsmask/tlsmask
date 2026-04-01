@@ -56,7 +56,7 @@ docker run -p 2255:2255 berkdedekarginoglu/tlsmask \
  
 **List available presets:**
 ```bash
-docker run --rm berkdedekarginoglu/tlsmask --list
+docker run berkdedekarginoglu/tlsmask --list
 ```
  
 > `--ja3` and `--ja4r` must be used together. Providing only one will result in an error.
