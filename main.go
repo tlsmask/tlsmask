@@ -35,6 +35,7 @@ func main() {
 	listFP := flag.Bool("list", false, "list available fingerprint templates and exit")
 	ja3Flag := flag.String("ja3", "", "JA3 fullstring")
 	ja4rFlag := flag.String("ja4r", "", "JA4_r raw string")
+	hexFlag := flag.String("hex", "", "raw ClientHello hex stream (auto-extracts JA3+JA4_r)")
 	flag.Parse()
 
 	if *listFP {
@@ -50,6 +51,19 @@ func main() {
 
 	info.addr = fmt.Sprintf("0.0.0.0:%d", *port)
 	info.upstream = *upstream
+
+	// --hex auto-extracts JA3 and JA4_r from raw ClientHello
+	if *hexFlag != "" {
+		parsedJA3, parsedJA4R, hexErr := fingerprint.ParseClientHelloHex(*hexFlag)
+		if hexErr != nil {
+			log.Fatalf("failed to parse ClientHello hex: %v", hexErr)
+		}
+		*ja3Flag = parsedJA3
+		*ja4rFlag = parsedJA4R
+		fmt.Printf("  \033[90mParsed from hex →\033[0m\n")
+		fmt.Printf("  \033[90m  JA3 :\033[0m %s\n", parsedJA3)
+		fmt.Printf("  \033[90m  JA4r:\033[0m %s\n\n", parsedJA4R)
+	}
 
 	if *ja3Flag != "" && *ja4rFlag != "" {
 		var displayName string
