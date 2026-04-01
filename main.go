@@ -31,7 +31,7 @@ func main() {
 	port := flag.Int("port", 2255, "proxy listen port")
 	fp := flag.String("fingerprint", "", "fingerprint template name (e.g. okhttp4)")
 	upstream := flag.String("upstream", "", "upstream proxy URL (e.g. http://127.0.0.1:8888)")
-	verbose := flag.Bool("verbose", false, "log response status codes")
+	verbose := flag.Bool("verbose", true, "log requests and response status codes")
 	listFP := flag.Bool("list", false, "list available fingerprint templates and exit")
 	ja3Flag := flag.String("ja3", "", "JA3 fullstring")
 	ja4rFlag := flag.String("ja4r", "", "JA4_r raw string")

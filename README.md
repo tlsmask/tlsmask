@@ -99,7 +99,7 @@ Your Tool (Burp) → tlsmask :2255 → Target Server
 | `--ja3` | JA3 fullstring (requires --ja4r) | — |
 | `--ja4r` | JA4_r raw string (requires --ja3) | — |
 | `--upstream` | Chain to upstream proxy URL | — |
-| `--verbose` | Log requests with status codes | `false` |
+| `--verbose` | Log requests with status codes | `true` |
 | `--list` | List available fingerprint presets | — |
  
 ---
