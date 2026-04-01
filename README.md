@@ -6,6 +6,7 @@ TLSMask is an upstream proxy for penetration testing that dynamically emulates T
  
 ## 🔥 Features
  
+- **One-liner hex import:** Paste a raw ClientHello hex stream from Wireshark and go
 - Exact TLS ClientHello reconstruction from JA3 + JA4_r (Wireshark)
 - Cipher suite and extension ordering preserved
 - Padding extension (`0x0015`) support
@@ -47,7 +48,15 @@ tlsmask output    : 3a3a7739b7ee9b4dc9078b116b72ab96  ✓
 docker run -p 2255:2255 berkdedekarginoglu/tlsmask
 ```
  
-**Custom fingerprint from Wireshark:**
+**From raw ClientHello hex (easiest — copy hex from Wireshark):**
+```bash
+docker run -p 2255:2255 berkdedekarginoglu/tlsmask \
+  --hex 1603010200010001fc0303d823e8a050ad437556ad02500b1c7bad...
+```
+> In Wireshark: Select the ClientHello → Right-click → Copy → `...as a Hex Stream`  
+> TLSMask automatically extracts JA3 + JA4_r from the raw bytes.
+ 
+**From JA3 + JA4_r (manual):**
 ```bash
 docker run -p 2255:2255 berkdedekarginoglu/tlsmask \
   --ja3 771,4865-4866-4867-49195-49196-52393-49199-49200-52392,0-23-65281-10-11-35-16-5-13-51-45-43-21,29-23-24,0 \
@@ -59,7 +68,7 @@ docker run -p 2255:2255 berkdedekarginoglu/tlsmask \
 docker run berkdedekarginoglu/tlsmask --list
 ```
  
-> `--ja3` and `--ja4r` must be used together. Providing only one will result in an error.
+> `--ja3` and `--ja4r` must be used together. `--hex` can be used alone.
  
 ---
  
@@ -86,6 +95,7 @@ Your Tool (Burp) → tlsmask :2255 → Target Server
 |------|-------------|---------|
 | `--port` | Proxy listen port | `2255` |
 | `--fingerprint` | Preset template name | `okhttp4` |
+| `--hex` | Raw ClientHello hex stream (auto-extracts JA3+JA4_r) | — |
 | `--ja3` | JA3 fullstring (requires --ja4r) | — |
 | `--ja4r` | JA4_r raw string (requires --ja3) | — |
 | `--upstream` | Chain to upstream proxy URL | — |
