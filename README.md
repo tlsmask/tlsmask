@@ -49,6 +49,10 @@ tls.handshake.type == 1 && tls.handshake.extensions_server_name == "target-domai
 ```
 
 **2. Choose your method:**
+<img width="859" height="468" alt="image" src="https://github.com/user-attachments/assets/30562899-35bf-46f5-868d-e7ac655f6969" />
+<img width="902" height="566" alt="image" src="https://github.com/user-attachments/assets/42bd082a-03a7-4634-80b2-a4c3863fbdf6" />
+<img width="850" height="554" alt="image" src="https://github.com/user-attachments/assets/a045404c-405c-4189-8a62-b56768b910c6" />
+
 
 | Method | What to copy | Flag |
 |--------|-------------|------|
