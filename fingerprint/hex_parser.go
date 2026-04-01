@@ -19,11 +19,27 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		return "", "", fmt.Errorf("invalid hex: %w", err)
 	}
 
-	off := 0
+	// Scan for TLS record layer start (0x16 0x03 0x0X)
+	// This allows pasting hex that includes Ethernet/IP/TCP headers
+	off := -1
+	for i := 0; i+5 <= len(data); i++ {
+		if data[i] == 0x16 && data[i+1] == 0x03 && data[i+2] <= 0x03 {
+			// Verify this looks like a ClientHello handshake
+			recordLen := int(data[i+3])<<8 | int(data[i+4])
+			if i+5+recordLen <= len(data) && data[i+5] == 0x01 {
+				off = i + 5 // skip TLS record header
+				break
+			}
+		}
+	}
 
-	// TLS record layer (optional - might start directly at handshake)
-	if off+5 <= len(data) && data[off] == 0x16 {
-		off += 5 // skip: type(1) + version(2) + length(2)
+	// Also try starting directly at handshake (no record layer)
+	if off == -1 {
+		if len(data) > 4 && data[0] == 0x01 {
+			off = 0
+		} else {
+			return "", "", fmt.Errorf("no ClientHello found in hex stream (you can paste the full packet including Ethernet/IP/TCP headers)")
+		}
 	}
 
 	// Handshake header
