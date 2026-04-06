@@ -99,7 +99,7 @@ docker run berkdedekarginoglu/tlsmask --list
 
 ---
 
-## ⚙️ How It Works
+## How It Works
 
 TLSMask sits between your testing tool and the target as an upstream MITM proxy:
 
@@ -116,7 +116,7 @@ Your Tool (Burp) → tlsmask :2255 → Target Server
 
 ---
 
-## 🛠️ CLI Reference
+##  CLI Reference
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -140,7 +140,7 @@ Your Tool (Burp) → tlsmask :2255 → Target Server
 
 ---
 
-## 🔗 Burp Suite Integration
+## Burp Suite Integration
 
 ```
 Settings → Network → Connections → Upstream Proxy Servers → Add
@@ -151,6 +151,6 @@ Settings → Network → Connections → Upstream Proxy Servers → Add
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This tool is intended for authorized security testing and research purposes only. Do not use against systems you do not have explicit permission to test.
