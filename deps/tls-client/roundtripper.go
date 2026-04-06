@@ -48,7 +48,8 @@ type roundTripper struct {
 	settingsOrder       []http2.SettingID
 	sync.Mutex
 
-	cachedTransportsLck sync.Mutex
+	cachedTransportsLck sync.RWMutex
+	hostLocks           sync.Map // per-host locks for TLS handshake parallelism
 	connectionFlow      uint32
 
 	forceHttp1   bool
@@ -208,6 +209,13 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 	return t3, nil
 }
 
+// getHostLock returns a per-host mutex so TLS handshakes to different hosts
+// can proceed in parallel instead of being serialized by a global lock.
+func (rt *roundTripper) getHostLock(addr string) *sync.Mutex {
+	lock, _ := rt.hostLocks.LoadOrStore(addr, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
 func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	addr := rt.getDialTLSAddr(req)
 
@@ -215,21 +223,38 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		return rt.racer.race(req, addr, rt.getTransport)
 	}
 
-	rt.cachedTransportsLck.Lock()
-	if _, ok := rt.cachedTransports[addr]; !ok {
-		if err := rt.getTransport(req, addr); err != nil {
-			rt.cachedTransportsLck.Unlock()
-
-			if errors.Is(err, ErrBadPinDetected) && rt.badPinHandlerFunc != nil {
-				rt.badPinHandlerFunc(req)
-			}
-
-			return nil, err
-		}
+	// Fast path: read-lock only, multiple goroutines can check concurrently
+	rt.cachedTransportsLck.RLock()
+	t, exists := rt.cachedTransports[addr]
+	rt.cachedTransportsLck.RUnlock()
+	if exists {
+		return t.RoundTrip(req)
 	}
 
-	t := rt.cachedTransports[addr]
-	rt.cachedTransportsLck.Unlock()
+	// Slow path: per-host lock so different hosts don't block each other
+	hl := rt.getHostLock(addr)
+	hl.Lock()
+	defer hl.Unlock()
+
+	// Double-check after acquiring per-host lock
+	rt.cachedTransportsLck.RLock()
+	t, exists = rt.cachedTransports[addr]
+	rt.cachedTransportsLck.RUnlock()
+	if exists {
+		return t.RoundTrip(req)
+	}
+
+	// TLS handshake happens here — only blocks requests to THIS host
+	if err := rt.getTransport(req, addr); err != nil {
+		if errors.Is(err, ErrBadPinDetected) && rt.badPinHandlerFunc != nil {
+			rt.badPinHandlerFunc(req)
+		}
+		return nil, err
+	}
+
+	rt.cachedTransportsLck.RLock()
+	t = rt.cachedTransports[addr]
+	rt.cachedTransportsLck.RUnlock()
 
 	return t.RoundTrip(req)
 }
@@ -237,7 +262,9 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 func (rt *roundTripper) getTransport(req *http.Request, addr string) error {
 	switch strings.ToLower(req.URL.Scheme) {
 	case "http":
+		rt.cachedTransportsLck.Lock()
 		rt.cachedTransports[addr] = rt.buildHttp1Transport()
+		rt.cachedTransportsLck.Unlock()
 		return nil
 	case "https":
 	default:
@@ -258,16 +285,14 @@ func (rt *roundTripper) getTransport(req *http.Request, addr string) error {
 }
 
 func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
+	// Brief lock: check for cached connection from protocol negotiation
 	rt.Lock()
-	defer rt.Unlock()
-
-	// If we have the connection from when we determined the HTTPS
-	// cachedTransports to use, return that.
 	if conn := rt.cachedConnections[addr]; conn != nil {
 		delete(rt.cachedConnections, addr)
-
+		rt.Unlock()
 		return conn, nil
 	}
+	rt.Unlock()
 
 	if network == "tcp" && rt.disableIPV6 {
 		network = "tcp4"
@@ -277,6 +302,7 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 		network = "tcp6"
 	}
 
+	// TCP dial + TLS handshake WITHOUT global lock — this is the slow part
 	rawConn, err := rt.dialer.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, err
@@ -302,17 +328,19 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 	conn := tls.UClient(rawConn, tlsConfig, rt.clientHelloId, rt.withRandomTlsExtensionOrder, rt.forceHttp1, rt.disableHttp3)
 	if err = conn.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
-
 		return nil, err
 	}
 
 	err = rt.certificatePinner.Pin(conn, host)
-
 	if err != nil {
 		return nil, err
 	}
 
-	if rt.cachedTransports[addr] != nil {
+	// Brief lock: check if transport was created while we were handshaking
+	rt.cachedTransportsLck.RLock()
+	transportExists := rt.cachedTransports[addr] != nil
+	rt.cachedTransportsLck.RUnlock()
+	if transportExists {
 		return conn, nil
 	}
 
@@ -400,7 +428,9 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 		t2.Priorities = rt.priorities
 
 		t2.PushHandler = &http2.DefaultPushHandler{}
+		rt.cachedTransportsLck.Lock()
 		rt.cachedTransports[addr] = &t2
+		rt.cachedTransportsLck.Unlock()
 	case http3.NextProtoH3:
 		t3, err := buildHTTP3Transport(&http3Config{
 			clientSessionCache:     rt.clientSessionCache,
@@ -416,14 +446,20 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 		if err != nil {
 			return nil, err
 		}
+		rt.cachedTransportsLck.Lock()
 		rt.cachedTransports[addr] = t3
+		rt.cachedTransportsLck.Unlock()
 	default:
+		rt.cachedTransportsLck.Lock()
 		rt.cachedTransports[addr] = rt.buildHttp1Transport()
+		rt.cachedTransportsLck.Unlock()
 	}
 
 	// Stash the connection just established for use servicing the
 	// actual request (should be near-immediate).
+	rt.Lock()
 	rt.cachedConnections[addr] = conn
+	rt.Unlock()
 
 	return nil, errProtocolNegotiated
 }

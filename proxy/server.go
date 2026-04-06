@@ -116,7 +116,8 @@ func (s *Server) handleConnect(conn net.Conn, connectReq *http.Request) {
 		if err != nil {
 			logError(num, "relay", err)
 			writeErrorResponse(tlsConn, 502, err.Error())
-			return
+			// Don't kill the tunnel — let the browser send more requests
+			continue
 		}
 
 		written, writeErr := writeHTTPResponse(tlsConn, resp)
@@ -160,15 +161,14 @@ func (s *Server) handlePlainHTTP(conn net.Conn, req *http.Request) {
 	}
 }
 
-func writeHTTPResponse(w io.Writer, resp *http.Response) (int, error) {
+// writeHTTPResponse streams the upstream response to the downstream client.
+// It uses chunked transfer encoding to avoid buffering the entire body in memory,
+// so the browser can start processing data as soon as the first chunk arrives.
+func writeHTTPResponse(w io.Writer, resp *http.Response) (int64, error) {
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("read body: %w", err)
-	}
+	bw := bufio.NewWriterSize(w, 64*1024)
 
-	bw := bufio.NewWriter(w)
 	fmt.Fprintf(bw, "HTTP/1.1 %d %s\r\n", resp.StatusCode, http.StatusText(resp.StatusCode))
 
 	skipHeaders := map[string]bool{
@@ -185,15 +185,54 @@ func writeHTTPResponse(w io.Writer, resp *http.Response) (int, error) {
 		}
 	}
 
-	fmt.Fprintf(bw, "Content-Length: %d\r\n\r\n", len(body))
-	bw.Write(body)
+	// Use chunked transfer encoding — stream body to browser immediately
+	// instead of buffering entire response in memory
+	fmt.Fprintf(bw, "Transfer-Encoding: chunked\r\n")
+	fmt.Fprintf(bw, "Connection: keep-alive\r\n")
+	fmt.Fprintf(bw, "\r\n")
+	bw.Flush()
 
-	return len(body), bw.Flush()
+	written, err := writeChunkedBody(w, resp.Body)
+	return written, err
+}
+
+// writeChunkedBody streams the response body using HTTP chunked transfer encoding.
+// Each chunk is flushed immediately, minimizing time-to-first-byte for the browser.
+func writeChunkedBody(w io.Writer, body io.Reader) (int64, error) {
+	bw := bufio.NewWriterSize(w, 64*1024)
+	buf := make([]byte, 32*1024)
+	var total int64
+
+	for {
+		n, readErr := body.Read(buf)
+		if n > 0 {
+			// Write chunk: <hex-length>\r\n<data>\r\n
+			fmt.Fprintf(bw, "%x\r\n", n)
+			bw.Write(buf[:n])
+			bw.WriteString("\r\n")
+			bw.Flush()
+			total += int64(n)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			// Write terminating chunk before returning error
+			bw.WriteString("0\r\n\r\n")
+			bw.Flush()
+			return total, fmt.Errorf("read body: %w", readErr)
+		}
+	}
+
+	// Terminating chunk
+	bw.WriteString("0\r\n\r\n")
+	bw.Flush()
+	return total, nil
 }
 
 func writeErrorResponse(w io.Writer, status int, msg string) {
 	body := fmt.Sprintf(`{"error":"%s"}`, msg)
-	fmt.Fprintf(w, "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
+	fmt.Fprintf(w, "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: keep-alive\r\n\r\n%s",
 		status, http.StatusText(status), len(body), body)
 }
 

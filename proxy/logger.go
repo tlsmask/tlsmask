@@ -19,7 +19,7 @@ const (
 	colorWhite  = "\033[97m"
 )
 
-func logRequest(num int64, method string, rawURL string, statusCode int, bodySize int, duration time.Duration) {
+func logRequest(num int64, method string, rawURL string, statusCode int, bodySize int64, duration time.Duration) {
 	ts := time.Now().Format("15:04:05")
 	host, path := splitURL(rawURL)
 	display := truncateStr(host+path, 52)
@@ -75,7 +75,7 @@ func splitURL(rawURL string) (string, string) {
 	return host, path
 }
 
-func humanSize(bytes int) string {
+func humanSize(bytes int64) string {
 	switch {
 	case bytes < 0:
 		return "  ?"

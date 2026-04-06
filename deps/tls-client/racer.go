@@ -23,7 +23,7 @@ type protocolRacer struct {
 	transportOptions    *TransportOptions
 	settings            map[http2.SettingID]uint32
 	cachedTransports    map[string]http.RoundTripper
-	cachedTransportsLck *sync.Mutex
+	cachedTransportsLck *sync.RWMutex
 	certificatePinner   CertificatePinner
 	badPinHandlerFunc   BadPinHandlerFunc
 	bandwidthTracker    bandwidth.BandwidthTracker
@@ -43,7 +43,7 @@ func newProtocolRacer(
 	transportOptions *TransportOptions,
 	settings map[http2.SettingID]uint32,
 	cachedTransports map[string]http.RoundTripper,
-	cachedTransportsLck *sync.Mutex,
+	cachedTransportsLck *sync.RWMutex,
 	certificatePinner CertificatePinner,
 	badPinHandlerFunc BadPinHandlerFunc,
 	bandwidthTracker bandwidth.BandwidthTracker,
