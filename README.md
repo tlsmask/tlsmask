@@ -4,7 +4,7 @@ TLSMask is an upstream proxy for penetration testing that dynamically emulates T
 
 ---
 
-## 🔥 Features
+##  Features
 
 - **One-liner hex import:** Paste a raw ClientHello hex stream from Wireshark and go
 - Exact TLS ClientHello reconstruction from JA3 + JA4_r (Wireshark)
@@ -17,7 +17,7 @@ TLSMask is an upstream proxy for penetration testing that dynamically emulates T
 
 ---
 
-## 🧪 Real-World Validation
+##  Real-World Validation
 
 **Target:** Twitter API (`api.twitter.com`) behind Cloudflare + Envoy  
 **Method:** Android app ClientHello captured in Wireshark, values passed directly to tlsmask
@@ -41,7 +41,7 @@ tlsmask output    : 3a3a7739b7ee9b4dc9078b116b72ab96  ✓
 
 ---
 
-## 📋 How to Capture a Fingerprint (Wireshark)
+##  How to Capture a Fingerprint (Wireshark)
 
 **1. Filter the ClientHello in Wireshark:**
 ```
@@ -70,7 +70,7 @@ docker run -p 2255:2255 berkdedekarginoglu/tlsmask --ja3 <paste_ja3> --ja4r <pas
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 **Preset fingerprint (OkHttp4):**
 ```bash
@@ -131,7 +131,7 @@ Your Tool (Burp) → tlsmask :2255 → Target Server
 
 ---
 
-## 🎯 Use Cases
+##  Use Cases
 
 - **Mobile app testing:** Reproduce the exact TLS fingerprint of an Android/iOS app after SSL unpinning
 - **WAF/bot protection bypass:** Route Burp Suite traffic through a legitimate-looking TLS fingerprint
