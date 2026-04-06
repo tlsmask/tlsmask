@@ -80,9 +80,27 @@ func BuildClientFromRaw(ja3String, ja4rString, proxyURL string) (tls_client.Http
 	keyShareCurves := inferKeyShareCurves(ja3String, ja4r.TLSVersion)
 	certCompression := inferCertCompression(ja3String)
 
+	// Infer ALPS (extension 17613/0x44CD) from ALPN protocols
+	var alps []string
+	if containsExtensionID(ja3String, "17613") {
+		alps = inferALPS(alpn)
+	}
+
+	// Infer ECH (extension 65037/0xFE0D) with default Chrome GREASE cipher suites
+	var echCipherSuites []tls_client.CandidateCipherSuites
+	var echPayloadLens []uint16
+	if containsExtensionID(ja3String, "65037") {
+		echCipherSuites = []tls_client.CandidateCipherSuites{
+			{KdfId: "HKDF_SHA256", AeadId: "AEAD_AES_128_GCM"},
+			{KdfId: "HKDF_SHA256", AeadId: "AEAD_AES_256_GCM"},
+			{KdfId: "HKDF_SHA256", AeadId: "AEAD_CHACHA20_POLY1305"},
+		}
+		echPayloadLens = []uint16{128, 223}
+	}
+
 	specFactory, err := tls_client.GetSpecFactoryFromJa3String(
 		ja3String, sigAlgs, nil, versions, keyShareCurves, alpn,
-		nil, nil, nil, certCompression, 0,
+		alps, echCipherSuites, echPayloadLens, certCompression, 0,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("build spec from JA3+JA4_r: %w", err)
@@ -154,11 +172,22 @@ func inferKeyShareCurves(ja3String, tlsVersion string) []string {
 		"25497": "X25519Kyber768", "4588": "X25519MLKEM768",
 	}
 
+	// Include key shares for the first two curves (e.g. X25519MLKEM768 + X25519)
+	// Chrome sends both post-quantum + classical key share for fallback
 	curves := strings.Split(parts[3], "-")
-	if name, ok := curveMap[curves[0]]; ok {
-		return []string{name}
+	var result []string
+	for _, c := range curves {
+		if name, ok := curveMap[c]; ok {
+			result = append(result, name)
+			if len(result) >= 2 {
+				break
+			}
+		}
 	}
-	return []string{"X25519"}
+	if len(result) == 0 {
+		return []string{"X25519"}
+	}
+	return result
 }
 
 func containsVersion(versions []string, v string) bool {
@@ -181,6 +210,28 @@ func hasTLS13Ciphers(ja3String string) bool {
 		}
 	}
 	return false
+}
+
+func containsExtensionID(ja3String, extID string) bool {
+	parts := strings.Split(ja3String, ",")
+	if len(parts) < 3 {
+		return false
+	}
+	for _, e := range strings.Split(parts[2], "-") {
+		if e == extID {
+			return true
+		}
+	}
+	return false
+}
+
+func inferALPS(alpn []string) []string {
+	for _, p := range alpn {
+		if p == "h2" {
+			return []string{"h2"}
+		}
+	}
+	return nil
 }
 
 func inferCertCompression(ja3String string) []string {
