@@ -86,7 +86,7 @@ func BuildClientFromRaw(ja3String, ja4rString, proxyURL string) (tls_client.Http
 		alps = inferALPS(alpn)
 	}
 
-	// Infer ECH (extension 65037/0xFE0D) with default Chrome GREASE cipher suites
+	// Infer ECH (extension 65037/0xFE0D) with default GREASE cipher suites
 	var echCipherSuites []tls_client.CandidateCipherSuites
 	var echPayloadLens []uint16
 	if containsExtensionID(ja3String, "65037") {
@@ -98,9 +98,21 @@ func BuildClientFromRaw(ja3String, ja4rString, proxyURL string) (tls_client.Http
 		echPayloadLens = []uint16{128, 223}
 	}
 
+	// Infer delegated credentials (extension 34) — Firefox uses this
+	var delegatedCreds []string
+	if containsExtensionID(ja3String, "34") {
+		delegatedCreds = sigAlgs
+	}
+
+	// Infer record size limit (extension 28) — Firefox default 16385
+	var recordSizeLimit uint16
+	if containsExtensionID(ja3String, "28") {
+		recordSizeLimit = 16385
+	}
+
 	specFactory, err := tls_client.GetSpecFactoryFromJa3String(
-		ja3String, sigAlgs, nil, versions, keyShareCurves, alpn,
-		alps, echCipherSuites, echPayloadLens, certCompression, 0,
+		ja3String, sigAlgs, delegatedCreds, versions, keyShareCurves, alpn,
+		alps, echCipherSuites, echPayloadLens, certCompression, recordSizeLimit,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("build spec from JA3+JA4_r: %w", err)
