@@ -59,14 +59,14 @@ func (s *Server) handleControl(conn net.Conn, req *http.Request) {
 
 	case path == "/sessions" && req.Method == http.MethodDelete:
 		n := s.Sessions.EndAll()
-		logInfo(fmt.Sprintf("ended all %d sessions", n))
+		LogInfo(fmt.Sprintf("ended all %d sessions", n))
 		writeJSON(conn, http.StatusOK, map[string]any{"ended": n})
 
 	case strings.HasPrefix(path, "/sessions/") && req.Method == http.MethodDelete:
 		id := strings.TrimPrefix(path, "/sessions/")
 		ended := s.Sessions.End(id)
 		if ended && s.current().settings.Verbose {
-			logInfo("ended session " + id)
+			LogInfo("ended session " + id)
 		}
 		writeJSON(conn, http.StatusOK, map[string]any{"id": id, "ended": ended})
 

@@ -65,11 +65,32 @@ type Server struct {
 	fingerprintCache sync.Map
 }
 
-func (s *Server) currentCA() *cert.CA {
+func (s *Server) CurrentCA() *cert.CA {
 	if ca := s.swapped.Load(); ca != nil {
 		return ca
 	}
 	return s.CA
+}
+
+func (s *Server) SetUIURL(url string) {
+	s.uiURL.Store(&url)
+}
+
+func (s *Server) ActiveFingerprint() (ja3, profile string) {
+	v := s.current()
+	return v.ja3, v.profile
+}
+
+func (s *Server) RequestsTotal() int64 {
+	return s.requestNum.Load()
+}
+
+func (s *Server) OpenConnections() int64 {
+	return s.openConns.Load()
+}
+
+func (s *Server) ProxiesCooling() int {
+	return s.healthGauge().tripped()
 }
 
 func (s *Server) ReplaceCA(dataDir string) (*cert.CA, error) {
@@ -89,7 +110,7 @@ func (s *Server) ListenAndServe() error {
 	defer ln.Close()
 	s.listener.Store(&ln)
 
-	logInfo("Proxy listening on " + s.Addr)
+	LogInfo("Proxy listening on " + s.Addr)
 
 	if s.Records == nil {
 		s.Records = NewRecorder(0, 0)
@@ -417,7 +438,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		if host == "" {
 			host = req.URL.Host
 		}
-		logInfo(fmt.Sprintf("\033[31mrefused %s: no upstream proxy, and Settings refuses direct requests\033[0m", host))
+		LogInfo(fmt.Sprintf("\033[31mrefused %s: no upstream proxy, and Settings refuses direct requests\033[0m", host))
 		if req.Method == http.MethodConnect {
 			fmt.Fprint(conn, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
 		} else {
@@ -455,7 +476,7 @@ func (s *Server) handleConnect(conn net.Conn, connectReq *http.Request, r route)
 		return
 	}
 
-	tlsConfig := s.currentCA().TLSConfigForHost(hostname)
+	tlsConfig := s.CurrentCA().TLSConfigForHost(hostname)
 	tlsConn := tls.Server(conn, tlsConfig)
 	defer tlsConn.Close()
 

@@ -13,6 +13,7 @@ import (
 
 	"tlsmask/cert"
 	"tlsmask/proxy"
+	"tlsmask/ui"
 )
 
 func main() {
@@ -72,17 +73,17 @@ func main() {
 		log.Fatalf("the stored settings are not usable: %v\n  fix or delete %s", err, store.Path())
 	}
 
-	ui := uiAddress(*uiAddr, *port)
-	printBanner(srv, *dataDir, ui)
+	uiListen := uiAddress(*uiAddr, *port)
+	printBanner(srv, *dataDir, uiListen)
 	if created {
 		logNewCA(cert.CertPath(*dataDir))
 	}
 	if !auth.Configured() {
-		printFirstRun(auth, ui)
+		printFirstRun(auth, uiListen)
 	}
 
 	proxy.SetRecording(true)
-	stopUI, uiErr := srv.ServeUI(proxy.UIConfig{Addr: ui, DataDir: *dataDir, Version: Version})
+	stopUI, uiErr := ui.Serve(srv, ui.Config{Addr: uiListen, DataDir: *dataDir, Version: Version})
 	if uiErr != nil {
 		log.Fatalf("failed to start the web UI: %v", uiErr)
 	}

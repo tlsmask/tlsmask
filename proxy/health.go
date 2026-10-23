@@ -109,7 +109,7 @@ func (h *upstreamHealth) record(proxyURL string, err error) {
 	st.failures++
 	if st.failures >= breakerThreshold && st.openUntil.IsZero() {
 		st.openUntil = time.Now().Add(h.cooldown)
-		logInfo(fmt.Sprintf("%supstream %s failed %d times in a row, refusing it for %s%s",
+		LogInfo(fmt.Sprintf("%supstream %s failed %d times in a row, refusing it for %s%s",
 			colorYellow, label, st.failures, h.cooldown, colorReset))
 	}
 }

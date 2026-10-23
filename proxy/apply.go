@@ -89,7 +89,7 @@ func (s *Server) Apply(next Settings) error {
 
 		if prev != nil && identityChanged(prev.settings, next) {
 			if n := s.Sessions.EndAll(); n > 0 {
-				logInfo(fmt.Sprintf("configuration changed, released %d session(s) built on the previous one", n))
+				LogInfo(fmt.Sprintf("configuration changed, released %d session(s) built on the previous one", n))
 			}
 		}
 	}

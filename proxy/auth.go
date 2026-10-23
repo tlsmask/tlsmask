@@ -20,9 +20,7 @@ import (
 )
 
 const (
-	uiCookieName = "tlsmask_auth_token"
-
-	uiSessionTTL = 12 * time.Hour
+	SignInTTL = 12 * time.Hour
 
 	MinPasswordLen = 8
 
@@ -214,7 +212,7 @@ func (a *AuthStore) syncLocked() {
 	switch {
 	case a.creds.Password == "" && a.token == "":
 		a.token = a.readOrMintToken()
-		logWarn("web UI password was reset; set a new one in the UI with the setup token")
+		LogWarn("web UI password was reset; set a new one in the UI with the setup token")
 	case a.creds.Password != "":
 		a.token = ""
 	}
@@ -327,7 +325,7 @@ func (a *AuthStore) recordFailLocked(ip string) {
 	if f.count >= loginMaxFails {
 		f.count = 0
 		f.until = time.Now().Add(loginLockout)
-		logWarn("web UI: locking out " + ip + " for " + loginLockout.String() + " after repeated failed logins")
+		LogWarn("web UI: locking out " + ip + " for " + loginLockout.String() + " after repeated failed logins")
 	}
 }
 
@@ -402,7 +400,7 @@ func (a *AuthStore) newSessionLocked() string {
 		}
 	}
 	tok := randomHex(32)
-	a.sessions[tok] = now.Add(uiSessionTTL)
+	a.sessions[tok] = now.Add(SignInTTL)
 	return tok
 }
 
@@ -423,7 +421,7 @@ func (a *AuthStore) ValidSession(token string) bool {
 		delete(a.sessions, token)
 		return false
 	}
-	a.sessions[token] = time.Now().Add(uiSessionTTL)
+	a.sessions[token] = time.Now().Add(SignInTTL)
 	return true
 }
 
@@ -528,7 +526,7 @@ func clientIP(addr string) string {
 	return addr
 }
 
-func isLoopback(addr string) bool {
+func IsLoopback(addr string) bool {
 	ip := net.ParseIP(clientIP(addr))
 	return ip != nil && ip.IsLoopback()
 }
@@ -557,7 +555,7 @@ func (s *Server) checkCredentials(auth proxyAuth) (string, bool) {
 
 	switch {
 	case auth.user == "" && auth.password == "":
-		return "proxy credentials required. Use http://<username>:<password>@" + s.clientAddr() +
+		return "proxy credentials required. Use http://<username>:<password>@" + s.ClientAddr() +
 			"; they are under Access in the web UI" + s.uiHint(), false
 	case !s.Auth.CheckProxyCredentials(auth.user, auth.password):
 		return "wrong proxy username or password. Check Access in the web UI" + s.uiHint(), false
@@ -565,7 +563,7 @@ func (s *Server) checkCredentials(auth proxyAuth) (string, bool) {
 	return "", true
 }
 
-func (s *Server) clientAddr() string {
+func (s *Server) ClientAddr() string {
 	host, port, err := net.SplitHostPort(s.Addr)
 	if err != nil {
 		return s.Addr
@@ -579,7 +577,7 @@ func (s *Server) clientAddr() string {
 
 func (s *Server) refuseUnauthorized(conn net.Conn, req *http.Request, reason string) {
 	if s.logRefusal(conn.RemoteAddr().String()) {
-		logWarn("refused " + clientIP(conn.RemoteAddr().String()) + ": " + reason)
+		LogWarn("refused " + clientIP(conn.RemoteAddr().String()) + ": " + reason)
 	}
 
 	if req.Method != http.MethodConnect && s.isSelfAddressed(req) {

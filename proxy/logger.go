@@ -64,7 +64,7 @@ func logRelayError(num int64, connID, context string, err error) {
 	)
 }
 
-func logInfo(msg string) {
+func LogInfo(msg string) {
 	fmt.Fprintf(os.Stderr, "  %s%s%s\n", colorCyan, msg, colorReset)
 }
 
@@ -218,6 +218,6 @@ func truncateStr(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-func logWarn(msg string) {
+func LogWarn(msg string) {
 	fmt.Fprintf(os.Stderr, "  %s! %s%s\n", colorYellow, msg, colorReset)
 }

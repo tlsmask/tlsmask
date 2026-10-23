@@ -20,6 +20,7 @@ import (
 
 	"tlsmask/cert"
 	"tlsmask/proxy"
+	"tlsmask/ui"
 )
 
 type env struct {
@@ -86,7 +87,7 @@ func start() (*env, func(), error) {
 	proxy.SetRecording(true)
 
 	go srv.ListenAndServe()
-	stopUI, err := srv.ServeUI(proxy.UIConfig{Addr: uiAddr, DataDir: dir, Version: "e2e"})
+	stopUI, err := ui.Serve(srv, ui.Config{Addr: uiAddr, DataDir: dir, Version: "e2e"})
 	if err != nil {
 		return nil, nil, err
 	}

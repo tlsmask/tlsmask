@@ -1,4 +1,4 @@
-package proxy
+package ui
 
 import (
 	"net/http"
@@ -7,9 +7,10 @@ import (
 	"testing"
 
 	"tlsmask/cert"
+	"tlsmask/proxy"
 )
 
-var uiRoutes = []string{
+var routes = []string{
 	"/",
 	"/ca.crt",
 	"/healthz",
@@ -34,12 +35,12 @@ var uiRoutes = []string{
 	"/api/password",
 }
 
-func TestUIRoutesNeedTheCookie(t *testing.T) {
+func TestRoutesNeedTheCookie(t *testing.T) {
 	srv, _ := signedInServer(t)
-	mux := srv.uiHandler(UIConfig{})
+	mux := newMux(srv, Config{})
 
-	for _, path := range uiRoutes {
-		if uiPublicPaths[path] {
+	for _, path := range routes {
+		if publicPaths[path] {
 			continue
 		}
 		for _, method := range []string{http.MethodGet, http.MethodPost} {
@@ -48,7 +49,7 @@ func TestUIRoutesNeedTheCookie(t *testing.T) {
 					req := httptest.NewRequest(method, path, strings.NewReader("{}"))
 					req.Header.Set("Content-Type", "application/json")
 					if cookie != "" {
-						req.AddCookie(&http.Cookie{Name: uiCookieName, Value: cookie})
+						req.AddCookie(&http.Cookie{Name: cookieName, Value: cookie})
 					}
 
 					rec := httptest.NewRecorder()
@@ -62,12 +63,12 @@ func TestUIRoutesNeedTheCookie(t *testing.T) {
 	}
 }
 
-func TestEveryUIRouteIsListed(t *testing.T) {
+func TestEveryRouteIsListed(t *testing.T) {
 	srv, _ := signedInServer(t)
-	mux := srv.uiHandler(UIConfig{})
+	mux := newMux(srv, Config{})
 
-	listed := make(map[string]bool, len(uiRoutes))
-	for _, path := range uiRoutes {
+	listed := make(map[string]bool, len(routes))
+	for _, path := range routes {
 		listed[path] = true
 	}
 
@@ -75,11 +76,11 @@ func TestEveryUIRouteIsListed(t *testing.T) {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, probe, nil))
 		if rec.Code != http.StatusNotFound && !listed[probe] {
-			t.Errorf("%s answered %d, so it is a route that uiRoutes does not list", probe, rec.Code)
+			t.Errorf("%s answered %d, so it is a route that routes does not list", probe, rec.Code)
 		}
 	}
 
-	for _, path := range uiRoutes {
+	for _, path := range routes {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code == http.StatusNotFound && path != "/" {
@@ -90,10 +91,10 @@ func TestEveryUIRouteIsListed(t *testing.T) {
 
 func TestSignedInBrowserGetsThrough(t *testing.T) {
 	srv, token := signedInServer(t)
-	mux := srv.uiHandler(UIConfig{})
+	mux := newMux(srv, Config{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/access", nil)
-	req.AddCookie(&http.Cookie{Name: uiCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -108,7 +109,7 @@ func TestSignedInBrowserGetsThrough(t *testing.T) {
 
 func TestMutationsRefuseAnotherOrigin(t *testing.T) {
 	srv, token := signedInServer(t)
-	mux := srv.uiHandler(UIConfig{})
+	mux := newMux(srv, Config{})
 
 	for _, tc := range []struct {
 		origin string
@@ -121,7 +122,7 @@ func TestMutationsRefuseAnotherOrigin(t *testing.T) {
 		req.Host = "127.0.0.1:2256"
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", tc.origin)
-		req.AddCookie(&http.Cookie{Name: uiCookieName, Value: token})
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
 
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -133,11 +134,11 @@ func TestMutationsRefuseAnotherOrigin(t *testing.T) {
 
 func TestFormPostIsRefused(t *testing.T) {
 	srv, token := signedInServer(t)
-	mux := srv.uiHandler(UIConfig{})
+	mux := newMux(srv, Config{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/access", strings.NewReader("rotate=1"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: uiCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -146,11 +147,13 @@ func TestFormPostIsRefused(t *testing.T) {
 	}
 }
 
-func signedInServer(t *testing.T) (*Server, string) {
+func signedInServer(t *testing.T) (*proxy.Server, string) {
 	t.Helper()
-	cheapHashing(t)
 
-	auth := newTestAuth(t)
+	auth, err := proxy.OpenAuth(t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenAuth(): %v", err)
+	}
 	token, err := auth.Setup("hunter2hunter2", "", true)
 	if err != nil {
 		t.Fatalf("Setup(): %v", err)
@@ -160,18 +163,22 @@ func signedInServer(t *testing.T) (*Server, string) {
 	if err != nil {
 		t.Fatalf("LoadOrCreateCA(): %v", err)
 	}
+	store, err := proxy.OpenSettings("")
+	if err != nil {
+		t.Fatalf("OpenSettings(): %v", err)
+	}
 
-	srv := &Server{
+	srv := &proxy.Server{
 		Addr:     "0.0.0.0:2255",
 		CA:       ca,
 		Auth:     auth,
-		Store:    &SettingsStore{cur: DefaultSettings()},
-		Records:  NewRecorder(0, 0),
-		Sessions: NewSessionStore(0, 0, 0),
+		Store:    store,
+		Records:  proxy.NewRecorder(0, 0),
+		Sessions: proxy.NewSessionStore(0, 0, 0),
 	}
 	t.Cleanup(srv.Sessions.Close)
 
-	if err := srv.Apply(DefaultSettings()); err != nil {
+	if err := srv.Apply(proxy.DefaultSettings()); err != nil {
 		t.Fatalf("Apply(): %v", err)
 	}
 	return srv, token
@@ -179,14 +186,14 @@ func signedInServer(t *testing.T) (*Server, string) {
 
 func TestSignOutEndsTheSession(t *testing.T) {
 	srv, token := signedInServer(t)
-	mux := srv.uiHandler(UIConfig{})
+	mux := newMux(srv, Config{})
 
 	call := func(method, contentType string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "/api/logout", strings.NewReader("{}"))
 		if contentType != "" {
 			req.Header.Set("Content-Type", contentType)
 		}
-		req.AddCookie(&http.Cookie{Name: uiCookieName, Value: token})
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		return rec
@@ -211,7 +218,7 @@ func TestSignOutEndsTheSession(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
-	req.AddCookie(&http.Cookie{Name: uiCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
 	after := httptest.NewRecorder()
 	mux.ServeHTTP(after, req)
 	if after.Code != http.StatusUnauthorized {
@@ -225,26 +232,26 @@ func TestRegenerateCA(t *testing.T) {
 	if _, _, err := cert.LoadOrCreateCA(dir); err != nil {
 		t.Fatal(err)
 	}
-	mux := srv.uiHandler(UIConfig{DataDir: dir})
-	before := srv.currentCA().Fingerprint()
+	mux := newMux(srv, Config{DataDir: dir})
+	before := srv.CurrentCA().Fingerprint()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/ca", strings.NewReader("{}"))
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: uiCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("regenerate got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	after := srv.currentCA().Fingerprint()
+	after := srv.CurrentCA().Fingerprint()
 	if after == before {
 		t.Fatal("the CA did not change")
 	}
 
 	dl := httptest.NewRecorder()
 	mux.ServeHTTP(dl, httptest.NewRequest(http.MethodGet, "/ca.crt", nil))
-	if !strings.Contains(dl.Body.String(), string(srv.currentCA().CertPEM())) {
+	if !strings.Contains(dl.Body.String(), string(srv.CurrentCA().CertPEM())) {
 		t.Error("/ca.crt still serves the old certificate")
 	}
 

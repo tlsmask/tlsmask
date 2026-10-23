@@ -363,7 +363,7 @@ type proxyAuth struct {
 	sessionID string
 }
 
-const sessionMarker = "-session-"
+const SessionMarker = "-session-"
 
 func parseProxyAuth(req *http.Request) proxyAuth {
 	return parseBasicAuth(req.Header.Get("Proxy-Authorization"))
@@ -380,7 +380,7 @@ func parseBasicAuth(value string) proxyAuth {
 	}
 
 	user, password, _ := strings.Cut(string(decoded), ":")
-	base, session, _ := strings.Cut(user, sessionMarker)
+	base, session, _ := strings.Cut(user, SessionMarker)
 	return proxyAuth{user: base, password: password, sessionID: session}
 }
 
