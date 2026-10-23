@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// ParseClientHelloHex parses a raw ClientHello hex stream and returns
-// the JA3 fullstring and JA4_r raw string.
 func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 	hexStr = strings.ReplaceAll(hexStr, " ", "")
 	hexStr = strings.ReplaceAll(hexStr, "\n", "")
@@ -19,21 +17,17 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		return "", "", fmt.Errorf("invalid hex: %w", err)
 	}
 
-	// Scan for TLS record layer start (0x16 0x03 0x0X)
-	// This allows pasting hex that includes Ethernet/IP/TCP headers
 	off := -1
 	for i := 0; i+5 <= len(data); i++ {
 		if data[i] == 0x16 && data[i+1] == 0x03 && data[i+2] <= 0x03 {
-			// Verify this looks like a ClientHello handshake
 			recordLen := int(data[i+3])<<8 | int(data[i+4])
 			if i+5+recordLen <= len(data) && data[i+5] == 0x01 {
-				off = i + 5 // skip TLS record header
+				off = i + 5
 				break
 			}
 		}
 	}
 
-	// Also try starting directly at handshake (no record layer)
 	if off == -1 {
 		if len(data) > 4 && data[0] == 0x01 {
 			off = 0
@@ -42,33 +36,28 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		}
 	}
 
-	// Handshake header
 	if off+4 > len(data) || data[off] != 0x01 {
 		return "", "", fmt.Errorf("not a ClientHello handshake")
 	}
-	off += 4 // type(1) + length(3)
+	off += 4
 
-	// ClientHello version
 	if off+2 > len(data) {
 		return "", "", fmt.Errorf("truncated: version")
 	}
 	chVersion := uint16(data[off])<<8 | uint16(data[off+1])
 	off += 2
 
-	// Random (32 bytes)
 	if off+32 > len(data) {
 		return "", "", fmt.Errorf("truncated: random")
 	}
 	off += 32
 
-	// Session ID
 	if off+1 > len(data) {
 		return "", "", fmt.Errorf("truncated: session id length")
 	}
 	sidLen := int(data[off])
 	off += 1 + sidLen
 
-	// Cipher Suites
 	if off+2 > len(data) {
 		return "", "", fmt.Errorf("truncated: cipher suites length")
 	}
@@ -88,14 +77,12 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 	}
 	off += csLen
 
-	// Compression Methods
 	if off+1 > len(data) {
 		return "", "", fmt.Errorf("truncated: compression")
 	}
 	cmLen := int(data[off])
 	off += 1 + cmLen
 
-	// Extensions
 	if off+2 > len(data) {
 		return "", "", fmt.Errorf("truncated: extensions length")
 	}
@@ -137,10 +124,10 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		extIDs = append(extIDs, extType)
 
 		switch extType {
-		case 0x0000: // SNI
+		case 0x0000:
 			hasSNI = true
 
-		case 0x000a: // supported_groups
+		case 0x000a:
 			if len(extData) >= 2 {
 				gLen := int(extData[0])<<8 | int(extData[1])
 				for i := 2; i+1 < 2+gLen && i+1 < len(extData); i += 2 {
@@ -151,7 +138,7 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 				}
 			}
 
-		case 0x000b: // ec_point_formats
+		case 0x000b:
 			if len(extData) >= 1 {
 				pfLen := int(extData[0])
 				for i := 1; i < 1+pfLen && i < len(extData); i++ {
@@ -159,7 +146,7 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 				}
 			}
 
-		case 0x000d: // signature_algorithms
+		case 0x000d:
 			if len(extData) >= 2 {
 				saLen := int(extData[0])<<8 | int(extData[1])
 				for i := 2; i+1 < 2+saLen && i+1 < len(extData); i += 2 {
@@ -168,7 +155,7 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 				}
 			}
 
-		case 0x0010: // ALPN
+		case 0x0010:
 			if len(extData) >= 2 {
 				aLen := int(extData[0])<<8 | int(extData[1])
 				pos := 2
@@ -186,10 +173,10 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 				}
 			}
 
-		case 0x0015: // padding
+		case 0x0015:
 			hasPadding = true
 
-		case 0x002b: // supported_versions
+		case 0x002b:
 			if len(extData) >= 1 {
 				svLen := int(extData[0])
 				for i := 1; i+1 < 1+svLen && i+1 < len(extData); i += 2 {
@@ -204,7 +191,6 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		_ = hasPadding
 	}
 
-	// Determine TLS version for JA3 and JA4
 	ja3Version := chVersion
 	ja4TLSVer := "12"
 	if len(supportedVersions) > 0 {
@@ -215,7 +201,7 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 			}
 		}
 		if highest == 0x0304 {
-			ja3Version = 771 // TLS 1.2 record but 1.3 in supported_versions
+			ja3Version = 771
 			ja4TLSVer = "13"
 		} else if highest == 0x0303 {
 			ja4TLSVer = "12"
@@ -235,34 +221,28 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		}
 	}
 
-	// ── Build JA3 ──
 	ja3Parts := make([]string, 5)
 
-	// Field 1: TLS version
 	ja3Parts[0] = fmt.Sprintf("%d", ja3Version)
 
-	// Field 2: Cipher suites (decimal, dash-separated, original order)
 	csDec := make([]string, len(ciphers))
 	for i, c := range ciphers {
 		csDec[i] = fmt.Sprintf("%d", c)
 	}
 	ja3Parts[1] = strings.Join(csDec, "-")
 
-	// Field 3: Extensions (decimal, dash-separated, original order)
 	extDec := make([]string, len(extIDs))
 	for i, e := range extIDs {
 		extDec[i] = fmt.Sprintf("%d", e)
 	}
 	ja3Parts[2] = strings.Join(extDec, "-")
 
-	// Field 4: Elliptic curves (decimal, dash-separated)
 	curveDec := make([]string, len(curves))
 	for i, c := range curves {
 		curveDec[i] = fmt.Sprintf("%d", c)
 	}
 	ja3Parts[3] = strings.Join(curveDec, "-")
 
-	// Field 5: Point formats (decimal, dash-separated)
 	pfDec := make([]string, len(pointFormats))
 	for i, p := range pointFormats {
 		pfDec[i] = fmt.Sprintf("%d", p)
@@ -271,7 +251,6 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 
 	ja3 = strings.Join(ja3Parts, ",")
 
-	// ── Build JA4_r ──
 	sniChar := "i"
 	if hasSNI {
 		sniChar = "d"
@@ -280,12 +259,10 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		alpnStr = "00"
 	}
 
-	// Count extensions (including GREASE-excluded ones we collected)
 	extCount := len(extIDs)
 
 	header := fmt.Sprintf("t%s%s%02d%02d%s", ja4TLSVer, sniChar, len(ciphers), extCount, alpnStr)
 
-	// Sorted cipher suites hex
 	sortedCiphers := make([]uint16, len(ciphers))
 	copy(sortedCiphers, ciphers)
 	sort.Slice(sortedCiphers, func(i, j int) bool { return sortedCiphers[i] < sortedCiphers[j] })
@@ -294,7 +271,6 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		csHex[i] = fmt.Sprintf("%04x", c)
 	}
 
-	// Sorted extensions hex (exclude SNI 0x0000 and ALPN 0x0010)
 	var filteredExts []uint16
 	for _, e := range extIDs {
 		if e != 0x0000 && e != 0x0010 {
@@ -307,7 +283,6 @@ func ParseClientHelloHex(hexStr string) (ja3 string, ja4r string, err error) {
 		extHex[i] = fmt.Sprintf("%04x", e)
 	}
 
-	// Signature algorithms hex (original order)
 	saHex := make([]string, len(sigAlgs))
 	for i, sa := range sigAlgs {
 		saHex[i] = fmt.Sprintf("%04x", sa)

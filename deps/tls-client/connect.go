@@ -405,3 +405,7 @@ func (h *http2Conn) CloseWrite() error {
 func (h *http2Conn) CloseRead() error {
 	return h.out.Close()
 }
+
+func NewConnectDialer(proxyUrlStr string, timeout time.Duration, localAddr *net.TCPAddr, configDialer net.Dialer, connectHeaders http.Header, logger Logger) (proxy.ContextDialer, error) {
+	return newConnectDialer(proxyUrlStr, timeout, localAddr, configDialer, connectHeaders, logger)
+}

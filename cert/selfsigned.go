@@ -4,11 +4,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
 	"math/big"
+	"net"
 	"sync"
 	"time"
 )
@@ -17,6 +19,8 @@ type CA struct {
 	cert    *x509.Certificate
 	key     *ecdsa.PrivateKey
 	tlsCert tls.Certificate
+
+	baseConfig *tls.Config
 
 	leafCache sync.Map
 }
@@ -53,26 +57,39 @@ func NewCA() (*CA, error) {
 		return nil, fmt.Errorf("parse CA cert: %w", err)
 	}
 
+	return newCAFrom(cert, key, certDER)
+}
+
+func newCAFrom(cert *x509.Certificate, key *ecdsa.PrivateKey, certDER []byte) (*CA, error) {
 	tlsCert := tls.Certificate{
 		Certificate: [][]byte{certDER},
 		PrivateKey:  key,
 		Leaf:        cert,
 	}
 
-	return &CA{cert: cert, key: key, tlsCert: tlsCert}, nil
+	base := &tls.Config{
+		NextProtos: []string{"h2", "http/1.1"},
+	}
+
+	var ticketKey [32]byte
+	if _, err := rand.Read(ticketKey[:]); err != nil {
+		return nil, fmt.Errorf("generate session ticket key: %w", err)
+	}
+	base.SetSessionTicketKeys([][32]byte{ticketKey})
+
+	return &CA{cert: cert, key: key, tlsCert: tlsCert, baseConfig: base}, nil
 }
 
 func (ca *CA) TLSConfigForHost(host string) *tls.Config {
-	return &tls.Config{
-		NextProtos: []string{"http/1.1"},
-		GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			name := info.ServerName
-			if name == "" {
-				name = host
-			}
-			return ca.leafCert(name)
-		},
+	cfg := ca.baseConfig.Clone()
+	cfg.GetCertificate = func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		name := info.ServerName
+		if name == "" {
+			name = host
+		}
+		return ca.leafCert(name)
 	}
+	return cfg
 }
 
 func (ca *CA) leafCert(hostname string) (*tls.Certificate, error) {
@@ -94,7 +111,12 @@ func (ca *CA) leafCert(hostname string) (*tls.Certificate, error) {
 		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{hostname},
+	}
+
+	if ip := net.ParseIP(hostname); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else {
+		template.DNSNames = []string{hostname}
 	}
 
 	leafDER, err := x509.CreateCertificate(rand.Reader, template, ca.cert, &leafKey.PublicKey, ca.key)
@@ -107,6 +129,8 @@ func (ca *CA) leafCert(hostname string) (*tls.Certificate, error) {
 		PrivateKey:  leafKey,
 	}
 
-	ca.leafCache.Store(hostname, leaf)
-	return leaf, nil
+	actual, _ := ca.leafCache.LoadOrStore(hostname, leaf)
+	return actual.(*tls.Certificate), nil
 }
+
+func sha256Sum(b []byte) [32]byte { return sha256.Sum256(b) }

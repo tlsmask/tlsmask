@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TLSMask</title>
+<link rel="icon" type="image/png" href="/mark.png">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="gate" id="gate" hidden>
+  <div class="gate-inner">
+    <img class="gate-logo" src="/logo.png" alt="TLSMask" width="112" height="112">
+    <div class="gate-card" id="gate-card"></div>
+    <p class="gate-foot">TLS fingerprint proxy</p>
+  </div>
+</div>
+
+<header>
+  <div class="brand">
+    <img class="brand-mark" src="/mark.png" alt="" width="32" height="32">
+    <span>TLSMask</span>
+    <span id="listen">&mdash;</span>
+  </div>
+  <nav class="nav" aria-label="Panels">
+    <button type="button" class="nav-item" id="open-settings">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg>
+      <span>Settings</span>
+    </button>
+    <button type="button" class="nav-item" id="open-cert">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span>Certificate</span>
+    </button>
+    <button type="button" class="nav-item" id="open-fp">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88M17.29 21.02c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M2 16h.01M21.8 16c.2-2 .131-5.354 0-6M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2M8.65 22c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2"/></svg>
+      <span>Fingerprint</span>
+    </button>
+    <button type="button" class="nav-item" id="open-access">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></svg>
+      <span>Access</span>
+    </button>
+  </nav>
+
+  <div class="head-actions">
+    <button type="button" id="pause" class="with-icon" aria-pressed="false">Pause</button>
+    <button type="button" id="run-test" class="with-icon primary-soft">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2M6.453 15h11.094M8.5 2h7"/></svg>
+      <span>Run Test</span>
+    </button>
+    <div class="account">
+      <button type="button" id="account" class="avatar" aria-haspopup="menu" aria-expanded="false" title="Account">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </button>
+      <div class="menu" id="account-menu" role="menu" hidden>
+        <div class="menu-head">Signed in<small>Web UI session</small></div>
+        <button type="button" role="menuitem" id="menu-access">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></svg>
+          <span>Access &amp; Login</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button type="button" role="menuitem" id="sign-out" class="menu-danger">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="bar">
+  <input type="search" id="q" placeholder="filter host, path, session or connection&hellip;" autocomplete="off">
+  <button class="chip" id="f-all" aria-pressed="true">All</button>
+  <button class="chip bad" id="f-bad" aria-pressed="false">Failures Only</button>
+  <button class="chip" id="f-clear">Clear</button>
+  <div class="pager">
+    <span class="count" id="pagecount">0 requests</span>
+    <button id="p-newest" title="jump to newest">&laquo;</button>
+    <button id="p-prev" title="newer">&lsaquo;</button>
+    <span class="count" id="pagenum">1 / 1</span>
+    <button id="p-next" title="older">&rsaquo;</button>
+  </div>
+</div>
+
+<main>
+  <div class="list">
+    <table>
+      <thead><tr>
+        <th class="c-num">#</th><th class="c-time">time</th><th class="c-method">method</th>
+        <th class="path">path</th><th class="c-status">status</th><th class="c-ms">ms</th>
+        <th class="c-session">session</th><th class="c-conn">conn</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty">waiting for traffic&hellip;</div>
+  </div>
+
+  <aside>
+    <div class="tabs">
+      <button class="tab" data-pane="req" aria-selected="true">Request</button>
+      <button class="tab" data-pane="res" aria-selected="false">Response</button>
+    </div>
+    <div class="pane" id="pane-req"><div class="empty">select a request</div></div>
+    <div class="pane" id="pane-res" hidden><div class="empty">select a request</div></div>
+  </aside>
+</main>
+
+<footer class="status">
+  <span class="status-item"><span class="dot" id="m-dot"></span><b id="m-state">connecting</b></span>
+  <span class="status-item"><b id="m-req">0</b> requests</span>
+  <span class="status-item"><b id="m-fail">0</b> failed</span>
+  <span class="status-item"><b id="m-tun">0</b> tunnels</span>
+  <span class="status-item"><b id="m-sess">0</b> sessions</span>
+  <span class="status-item"><b id="m-drop">0</b> dropped</span>
+  <span class="status-right" id="m-version"></span>
+</footer>
+
+<dialog id="modal">
+  <div class="modal-head">
+    <h2 id="modal-title"></h2>
+    <button id="modal-close">Close</button>
+  </div>
+  <div class="modal-body" id="modal-body"></div>
+</dialog>
+
+<dialog id="confirm" class="confirm">
+  <form method="dialog">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-body"></p>
+    <div class="confirm-actions">
+      <button value="cancel">Cancel</button>
+      <button value="confirm" class="danger" id="confirm-ok">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>

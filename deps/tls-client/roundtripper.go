@@ -216,6 +216,16 @@ func (rt *roundTripper) getHostLock(addr string) *sync.Mutex {
 	return lock.(*sync.Mutex)
 }
 
+func withoutDefaultUserAgent(t http.RoundTripper, req *http.Request) {
+	ua, set := req.Header["User-Agent"]
+	if !set || len(ua) != 0 {
+		return
+	}
+	if _, h2 := t.(*http2.Transport); h2 {
+		req.Header["User-Agent"] = []string{""}
+	}
+}
+
 func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	addr := rt.getDialTLSAddr(req)
 
@@ -228,6 +238,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	t, exists := rt.cachedTransports[addr]
 	rt.cachedTransportsLck.RUnlock()
 	if exists {
+		withoutDefaultUserAgent(t, req)
 		return t.RoundTrip(req)
 	}
 
@@ -241,6 +252,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	t, exists = rt.cachedTransports[addr]
 	rt.cachedTransportsLck.RUnlock()
 	if exists {
+		withoutDefaultUserAgent(t, req)
 		return t.RoundTrip(req)
 	}
 
@@ -256,6 +268,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	t = rt.cachedTransports[addr]
 	rt.cachedTransportsLck.RUnlock()
 
+	withoutDefaultUserAgent(t, req)
 	return t.RoundTrip(req)
 }
 

@@ -2,7 +2,9 @@ package fingerprint
 
 import (
 	"fmt"
+	"net"
 	"strings"
+	"time"
 
 	"github.com/bogdanfinn/fhttp/http2"
 	tls_client "github.com/bogdanfinn/tls-client"
@@ -10,22 +12,27 @@ import (
 	tls "github.com/bogdanfinn/utls"
 )
 
-func BuildClient(tmpl *Template, proxyURL string) (tls_client.HttpClient, error) {
+func BuildClient(tmpl *Template, proxyURL string, plan Plan) (tls_client.HttpClient, error) {
 	if tmpl == nil {
 		return nil, fmt.Errorf("template is nil")
 	}
 
-	specFactory, err := tls_client.GetSpecFactoryFromJa3String(
-		tmpl.JA3String,
-		tmpl.SupportedSignatureAlgorithms,
-		tmpl.DelegatedCredentialsAlgorithms,
-		tmpl.SupportedVersions,
-		tmpl.KeyShareCurves,
-		tmpl.ALPNProtocols,
-		nil, nil, nil,
-		tmpl.CertCompressionAlgorithms,
-		tmpl.RecordSizeLimit,
-	)
+	ja3String := tmpl.JA3String
+	keyShareCurves := tmpl.KeyShareCurves
+	if plan.GREASE {
+		ja3String = GreaseJA3(ja3String)
+		keyShareCurves = GreaseKeyShareCurves(keyShareCurves)
+	}
+
+	specFactory, err := buildSpecFactory(ja3String, specFactoryArgs{
+		SigAlgs:         tmpl.SupportedSignatureAlgorithms,
+		DelegatedCreds:  tmpl.DelegatedCredentialsAlgorithms,
+		Versions:        tmpl.SupportedVersions,
+		KeyShareCurves:  keyShareCurves,
+		ALPN:            tmpl.ALPNProtocols,
+		CertCompression: tmpl.CertCompressionAlgorithms,
+		RecordSizeLimit: tmpl.RecordSizeLimit,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("build spec factory from JA3: %w", err)
 	}
@@ -49,24 +56,94 @@ func BuildClient(tmpl *Template, proxyURL string) (tls_client.HttpClient, error)
 		tmpl.H3Settings, tmpl.H3SettingsOrder, 0, tmpl.H3PseudoHeaderOrder, false,
 	)
 
+	return tls_client.NewHttpClient(nil, clientOptions(profile, proxyURL, plan)...)
+}
+
+func clientOptions(profile profiles.ClientProfile, proxyURL string, plan Plan) []tls_client.HttpClientOption {
 	options := []tls_client.HttpClientOption{
 		tls_client.WithClientProfile(profile),
 		tls_client.WithCookieJar(tls_client.NewCookieJar()),
-		tls_client.WithInsecureSkipVerify(),
 		tls_client.WithNotFollowRedirects(),
-		tls_client.WithTimeoutSeconds(30),
+		tls_client.WithTimeoutMilliseconds(int(ClientTimeout() / time.Millisecond)),
+		tls_client.WithDialer(net.Dialer{Timeout: DialTimeout(), KeepAlive: 30 * time.Second}),
+	}
+	if !VerifyUpstream() {
+		options = append(options, tls_client.WithInsecureSkipVerify())
+	}
+	if plan.ShuffleExtensions {
+		options = append(options, tls_client.WithRandomTLSExtensionOrder())
 	}
 	if proxyURL != "" {
-		options = append(options, tls_client.WithProxyUrl(proxyURL))
+		options = append(options, tls_client.WithProxyDialerFactory(countingProxyDialer(proxyURL)))
 	}
-
-	return tls_client.NewHttpClient(nil, options...)
+	return options
 }
 
-func BuildClientFromRaw(ja3String, ja4rString, proxyURL string) (tls_client.HttpClient, string, error) {
+func BuildClientFromRaw(ja3String, ja4rString, proxyURL string, plan Plan) (tls_client.HttpClient, string, error) {
+	specFactory, ja4r, err := rawSpecFactory(ja3String, ja4rString, plan)
+	if err != nil {
+		return nil, "", err
+	}
+
+	clientHelloID := tls.ClientHelloID{
+		Client:      "tlsmask",
+		Version:     "custom",
+		SpecFactory: specFactory,
+	}
+
+	h2Settings, h2SettingsOrder := rawH2Settings(ja3String)
+
+	profile := profiles.NewClientProfile(
+		clientHelloID,
+		h2Settings, h2SettingsOrder,
+		[]string{":method", ":authority", ":scheme", ":path"},
+		15663105,
+		nil, nil, 0, false,
+		nil, nil, 0, nil, false,
+	)
+
+	client, err := tls_client.NewHttpClient(nil, clientOptions(profile, proxyURL, plan)...)
+	if err != nil {
+		return nil, "", fmt.Errorf("create HTTP client: %w", err)
+	}
+
+	displayName := fmt.Sprintf("custom (TLS %s, %s, %d ciphers, %d sig_algs)",
+		ja4r.TLSVersion, ja4r.ALPN, countJA3Ciphers(ja3String), len(ja4r.SignatureAlgorithmsHex))
+
+	return client, displayName, nil
+}
+
+func rawH2Settings(ja3String string) (map[http2.SettingID]uint32, []http2.SettingID) {
+	if DetectBrowser(ja3String) == BrowserChrome {
+		return map[http2.SettingID]uint32{
+				http2.SettingHeaderTableSize:   65536,
+				http2.SettingEnablePush:        0,
+				http2.SettingInitialWindowSize: 6291456,
+				http2.SettingMaxHeaderListSize: 262144,
+			}, []http2.SettingID{
+				http2.SettingHeaderTableSize,
+				http2.SettingEnablePush,
+				http2.SettingInitialWindowSize,
+				http2.SettingMaxHeaderListSize,
+			}
+	}
+	return map[http2.SettingID]uint32{
+			http2.SettingHeaderTableSize:      65536,
+			http2.SettingMaxConcurrentStreams: 1000,
+			http2.SettingInitialWindowSize:    6291456,
+			http2.SettingMaxHeaderListSize:    262144,
+		}, []http2.SettingID{
+			http2.SettingHeaderTableSize,
+			http2.SettingMaxConcurrentStreams,
+			http2.SettingInitialWindowSize,
+			http2.SettingMaxHeaderListSize,
+		}
+}
+
+func rawSpecFactory(ja3String, ja4rString string, plan Plan) (func() (tls.ClientHelloSpec, error), *JA4RInfo, error) {
 	ja4r, err := ParseJA4R(ja4rString)
 	if err != nil {
-		return nil, "", fmt.Errorf("parse JA4_r: %w", err)
+		return nil, nil, fmt.Errorf("parse JA4_r: %w", err)
 	}
 
 	sigAlgs := ja4r.SignatureAlgorithmsHex
@@ -80,13 +157,11 @@ func BuildClientFromRaw(ja3String, ja4rString, proxyURL string) (tls_client.Http
 	keyShareCurves := inferKeyShareCurves(ja3String, ja4r.TLSVersion)
 	certCompression := inferCertCompression(ja3String)
 
-	// Infer ALPS (extension 17613/0x44CD) from ALPN protocols
 	var alps []string
 	if containsExtensionID(ja3String, "17613") {
 		alps = inferALPS(alpn)
 	}
 
-	// Infer ECH (extension 65037/0xFE0D) with default GREASE cipher suites
 	var echCipherSuites []tls_client.CandidateCipherSuites
 	var echPayloadLens []uint16
 	if containsExtensionID(ja3String, "65037") {
@@ -98,74 +173,38 @@ func BuildClientFromRaw(ja3String, ja4rString, proxyURL string) (tls_client.Http
 		echPayloadLens = []uint16{128, 223}
 	}
 
-	// Infer delegated credentials (extension 34) — Firefox uses this
 	var delegatedCreds []string
 	if containsExtensionID(ja3String, "34") {
 		delegatedCreds = sigAlgs
 	}
 
-	// Infer record size limit (extension 28) — Firefox default 16385
 	var recordSizeLimit uint16
 	if containsExtensionID(ja3String, "28") {
 		recordSizeLimit = 16385
 	}
 
-	specFactory, err := tls_client.GetSpecFactoryFromJa3String(
-		ja3String, sigAlgs, delegatedCreds, versions, keyShareCurves, alpn,
-		alps, echCipherSuites, echPayloadLens, certCompression, recordSizeLimit,
-	)
+	if plan.GREASE {
+		ja3String = GreaseJA3(ja3String)
+		keyShareCurves = GreaseKeyShareCurves(keyShareCurves)
+	}
+
+	specFactory, err := buildSpecFactory(ja3String, specFactoryArgs{
+		SigAlgs:         sigAlgs,
+		DelegatedCreds:  delegatedCreds,
+		Versions:        versions,
+		KeyShareCurves:  keyShareCurves,
+		ALPN:            alpn,
+		ALPS:            alps,
+		ECHCipherSuites: echCipherSuites,
+		ECHPayloadLens:  echPayloadLens,
+		CertCompression: certCompression,
+		RecordSizeLimit: recordSizeLimit,
+	})
 	if err != nil {
-		return nil, "", fmt.Errorf("build spec from JA3+JA4_r: %w", err)
+		return nil, nil, fmt.Errorf("build spec from JA3+JA4_r: %w", err)
 	}
 
-	clientHelloID := tls.ClientHelloID{
-		Client:      "tlsmask",
-		Version:     "custom",
-		SpecFactory: specFactory,
-	}
-
-	h2Settings := map[http2.SettingID]uint32{
-		http2.SettingHeaderTableSize:      65536,
-		http2.SettingMaxConcurrentStreams:  1000,
-		http2.SettingInitialWindowSize:    6291456,
-		http2.SettingMaxHeaderListSize:    262144,
-	}
-	h2SettingsOrder := []http2.SettingID{
-		http2.SettingHeaderTableSize,
-		http2.SettingMaxConcurrentStreams,
-		http2.SettingInitialWindowSize,
-		http2.SettingMaxHeaderListSize,
-	}
-
-	profile := profiles.NewClientProfile(
-		clientHelloID,
-		h2Settings, h2SettingsOrder,
-		[]string{":method", ":authority", ":scheme", ":path"},
-		15663105,
-		nil, nil, 0, false,
-		nil, nil, 0, nil, false,
-	)
-
-	options := []tls_client.HttpClientOption{
-		tls_client.WithClientProfile(profile),
-		tls_client.WithCookieJar(tls_client.NewCookieJar()),
-		tls_client.WithInsecureSkipVerify(),
-		tls_client.WithNotFollowRedirects(),
-		tls_client.WithTimeoutSeconds(30),
-	}
-	if proxyURL != "" {
-		options = append(options, tls_client.WithProxyUrl(proxyURL))
-	}
-
-	client, err := tls_client.NewHttpClient(nil, options...)
-	if err != nil {
-		return nil, "", fmt.Errorf("create HTTP client: %w", err)
-	}
-
-	displayName := fmt.Sprintf("custom (TLS %s, %s, %d ciphers, %d sig_algs)",
-		ja4r.TLSVersion, ja4r.ALPN, countJA3Ciphers(ja3String), len(sigAlgs))
-
-	return client, displayName, nil
+	return specFactory, ja4r, nil
 }
 
 func inferKeyShareCurves(ja3String, tlsVersion string) []string {
@@ -184,8 +223,6 @@ func inferKeyShareCurves(ja3String, tlsVersion string) []string {
 		"25497": "X25519Kyber768", "4588": "X25519MLKEM768",
 	}
 
-	// Include key shares for the first two curves (e.g. X25519MLKEM768 + X25519)
-	// Chrome sends both post-quantum + classical key share for fallback
 	curves := strings.Split(parts[3], "-")
 	var result []string
 	for _, c := range curves {
