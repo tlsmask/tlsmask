@@ -9,3 +9,11 @@ vendor/
 *.swp
 .DS_Store
 Thumbs.db
+
+proxies.txt
+settings.json
+auth.json
+setup-token
+*.log
+tlsmask_out.txt
+tlsmask_err.txt

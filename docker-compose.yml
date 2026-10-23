@@ -1,0 +1,21 @@
+services:
+  tlsmask:
+    build: .
+    image: tlsmask
+    container_name: tlsmask
+    ports:
+      - "127.0.0.1:2255:2255"
+      - "127.0.0.1:2256:2256"
+    volumes:
+      - tlsmask-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2256/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+volumes:
+  tlsmask-data:

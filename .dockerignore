@@ -1,24 +1,27 @@
-# Binaries
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# OS
 .DS_Store
 Thumbs.db
 
-# Git
 .git/
 .gitignore
 
-# Docker
 Dockerfile
 docker-compose.yml
+
+proxies.txt
+auth.json
+setup-token
+settings.json
+*.log
+tlsmask_out.txt
+tlsmask_err.txt
