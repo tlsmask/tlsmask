@@ -406,6 +406,105 @@ func TestRequestsAreRecorded(t *testing.T) {
 	t.Errorf("the request is not in the recorded window: %+v", records)
 }
 
+func TestPlainAndTLSToTheSameHost(t *testing.T) {
+	plain := httptest.NewServer(http.HandlerFunc(echo))
+	defer plain.Close()
+	secure := httptest.NewUnstartedServer(http.HandlerFunc(echo))
+	secure.EnableHTTP2 = true
+	secure.StartTLS()
+	defer secure.Close()
+
+	suite.setProxies(t, routingProxy(t, map[string]string{
+		"site.test:80":  strings.TrimPrefix(plain.URL, "http://"),
+		"site.test:443": strings.TrimPrefix(secure.URL, "https://"),
+	}))
+
+	for session, order := range map[string][]string{
+		"mix1": {"http://site.test/echo", "https://site.test/echo"},
+		"mix2": {"https://site.test/echo", "http://site.test/echo"},
+	} {
+		c := suite.client(suite.user+"-session-"+session, suite.password)
+		for _, target := range order {
+			res, err := c.Get(target)
+			if err != nil {
+				t.Errorf("%v: %s: %v", order, target, err)
+				continue
+			}
+			body, _ := io.ReadAll(res.Body)
+			res.Body.Close()
+			if res.StatusCode != http.StatusOK {
+				t.Errorf("%v: %s answered %d: %s", order, target, res.StatusCode, body)
+			}
+		}
+		c.CloseIdleConnections()
+	}
+}
+
+func (e *env) setProxies(t *testing.T, proxies ...string) {
+	t.Helper()
+	put := func(list []string) {
+		body, _ := json.Marshal(map[string]any{"proxies": list})
+		res, err := e.ui(http.MethodPut, "/api/settings", string(body), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("setting the upstream proxies got %d", res.StatusCode)
+		}
+	}
+	put(proxies)
+	t.Cleanup(func() { put([]string{}) })
+}
+
+func routingProxy(t *testing.T, routes map[string]string) string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go route(c, routes)
+		}
+	}()
+	return ln.Addr().String()
+}
+
+func route(c net.Conn, routes map[string]string) {
+	defer c.Close()
+	br := bufio.NewReader(c)
+	req, err := http.ReadRequest(br)
+	if err != nil {
+		return
+	}
+	host := req.Host
+	if req.Method != http.MethodConnect && req.URL.Port() == "" {
+		host = net.JoinHostPort(req.URL.Hostname(), "80")
+	}
+	dst, ok := routes[host]
+	if !ok {
+		fmt.Fprint(c, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+		return
+	}
+	up, err := net.Dial("tcp", dst)
+	if err != nil {
+		return
+	}
+	defer up.Close()
+	if req.Method == http.MethodConnect {
+		fmt.Fprint(c, "HTTP/1.1 200 Connection established\r\n\r\n")
+	} else if err := req.Write(up); err != nil {
+		return
+	}
+	go io.Copy(up, br)
+	io.Copy(c, up)
+}
+
 func TestRegenerateCertificate(t *testing.T) {
 	oldClient := suite.client(suite.user, suite.password)
 
